@@ -1,18 +1,17 @@
 """
 Wayback Machine uptime diagnostic tool.
 
-Pulls CDX capture history for a domain, detects HTTP status transitions
+Pulls CDX capture history for a site, detects HTTP status transitions
 (200 -> non-200 = "down event", non-200 -> 200 = "recovery event") per URL,
 and aggregates them into a weekly timeline.
 
 Usage:
-    wayback-seo --domain www.example.com --output timeline.png
+    wayback-seo down --site www.example.com --output timeline.png
 
 Per-URL mode is stubbed for later (--url flag), current aggregate mode
 already groups internally by URL before rolling up, so adding a filter
 is a one-line change (see filter point in aggregate()).
 """
-import argparse
 import concurrent.futures
 import gzip
 import hashlib
@@ -32,10 +31,10 @@ CDX_BASE = "https://web.archive.org/cdx/search/cdx"
 
 # ---------------------------------------------------------------------------
 # Defaults used when the corresponding CLI flag is not passed. Edit these to
-# run the tool with no arguments at all (e.g. `wayback-seo`),
+# run the tool with no arguments at all (e.g. `wayback-seo down`),
 # or override any of them individually via CLI flags.
 # ---------------------------------------------------------------------------
-DEFAULT_DOMAIN = "www.dicasafalcone.com"
+DEFAULT_SITE = "www.dicasafalcone.com"
 DEFAULT_INPUT_PATH = None        # local CDX JSON file instead of live fetch
 DEFAULT_FROM_DATE = None         # yyyyMMdd...; None = 365 days before DEFAULT_TO_DATE
 DEFAULT_TO_DATE = None           # yyyyMMdd...; None = today
@@ -53,7 +52,8 @@ DEFAULT_DOWN_STATUSES = "4xx,5xx,-403,-429"  # statuses that count as down; othe
                                              # ignored: 3xx, and 403/429, which say how IA's
                                              # crawler was treated, not what visitors saw
 DEFAULT_SCOPE = "host"           # "host" = this host only (IA treats www.x and x as one);
-                                 # "domain" = also every subdomain
+                                 # "domain" = also every subdomain. A --site with a
+                                 # path (x.com/shop/) always means "URLs under that path"
 DEFAULT_CACHE_DIR = "wayback_cache"  # successful CDX responses saved here, so a rerun
                                      # resumes and can run offline; None = no cache
 
@@ -168,7 +168,13 @@ def _get_json(url, timeout, label, retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CA
     return obj
 
 
-def _get_num_pages(domain, date_from=None, date_to=None, timeout=30, page_size=DEFAULT_PAGE_SIZE,
+def _match_type(site, scope):
+    """CDX matchType: a path after the host means everything under that path."""
+    rest = site.split("://", 1)[-1]
+    return "prefix" if "/" in rest and rest.split("/", 1)[1] else scope
+
+
+def _get_num_pages(site, date_from=None, date_to=None, timeout=30, page_size=DEFAULT_PAGE_SIZE,
                    retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR, scope=DEFAULT_SCOPE):
     """
     Ask CDX how many pages this query would span (fast, index-only check).
@@ -178,7 +184,7 @@ def _get_num_pages(domain, date_from=None, date_to=None, timeout=30, page_size=D
     match between this call and the page fetches, or page boundaries
     won't line up.
     """
-    params = {"url": domain, "matchType": scope, "output": "json",
+    params = {"url": site, "matchType": _match_type(site, scope), "output": "json",
               "showNumPages": "true", "pageSize": page_size}
     if date_from:
         params["from"] = date_from
@@ -210,12 +216,12 @@ def _get_num_pages(domain, date_from=None, date_to=None, timeout=30, page_size=D
     return 1
 
 
-def _fetch_cdx_page(domain, page, date_from=None, date_to=None, timeout=120,
+def _fetch_cdx_page(site, page, date_from=None, date_to=None, timeout=120,
                      include_page_param=True, page_size=DEFAULT_PAGE_SIZE,
                      retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR, scope=DEFAULT_SCOPE):
     params = {
-        "url": domain,
-        "matchType": scope,
+        "url": site,
+        "matchType": _match_type(site, scope),
         "output": "json",
         "fl": "timestamp,original,statuscode",  # collapse works without digest in fl
         "collapse": "digest",
@@ -278,11 +284,11 @@ def _merge_rows(responses):
     return ([header] if header else []) + all_rows
 
 
-def fetch_cdx(domain, date_from=None, date_to=None, timeout=120,
+def fetch_cdx(site, date_from=None, date_to=None, timeout=120,
                max_workers=DEFAULT_MAX_WORKERS, page_size=DEFAULT_PAGE_SIZE,
                retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR, scope=DEFAULT_SCOPE):
     """
-    Fetch CDX rows for an entire domain, using the CDX pagination API to
+    Fetch CDX rows for an entire site, using the CDX pagination API to
     split large domains into pages fetched in parallel (falls back to a
     single request when the server reports only one page).
 
@@ -295,25 +301,44 @@ def fetch_cdx(domain, date_from=None, date_to=None, timeout=120,
     Returns (rows, missing_pages, num_pages). A page that still fails after
     its retries is listed in missing_pages instead of aborting the whole run.
     """
-    num_pages = _get_num_pages(domain, date_from, date_to, page_size=page_size,
+    num_pages = _get_num_pages(site, date_from, date_to, page_size=page_size,
                                retries=retries, cache_dir=cache_dir, scope=scope)
     print(f"CDX reports ~{num_pages} page(s) for this query at pageSize={page_size} "
           f"(unfiltered estimate; fetching with {min(max_workers, num_pages)} workers)",
           file=sys.stderr)
 
     if num_pages <= 1:
-        rows = _fetch_cdx_page(domain, 0, date_from, date_to, timeout, include_page_param=False,
+        rows = _fetch_cdx_page(site, 0, date_from, date_to, timeout, include_page_param=False,
                                retries=retries, cache_dir=cache_dir, scope=scope)
         return rows, [], 1
 
     jobs = {
-        f"page {p}": (lambda p=p: _fetch_cdx_page(domain, p, date_from, date_to, timeout, True,
+        f"page {p}": (lambda p=p: _fetch_cdx_page(site, p, date_from, date_to, timeout, True,
                                                    page_size, retries, cache_dir, scope))
         for p in range(num_pages)
     }
     pages, failed = _run_parallel(jobs, max_workers)
     missing = sorted(int(key.split()[1]) for key in failed)
     return _merge_rows(pages.get(f"page {p}") for p in range(num_pages)), missing, num_pages
+
+
+def as_site_list(site):
+    """--site takes one value or several (e.g. one path per language)."""
+    return [site] if isinstance(site, str) else list(site)
+
+
+def fetch_sites(sites, date_from=None, date_to=None, **options):
+    """
+    fetch_cdx() for each site, rows merged. Returns (rows, missing, num_pages)
+    with missing pages named "<site> page <n>" and pages summed over sites.
+    """
+    responses, missing, num_pages = [], [], 0
+    for site in as_site_list(sites):
+        rows, site_missing, site_pages = fetch_cdx(site, date_from, date_to, **options)
+        responses.append(rows)
+        missing += [f"{site} page {p}" for p in site_missing]
+        num_pages += site_pages
+    return _merge_rows(responses), missing, num_pages
 
 
 def load_cdx_file(path):
@@ -423,7 +448,7 @@ def aggregate_weekly(events, records=(), url_filter=None):
     return dict(sorted(weekly.items()))
 
 
-def plot_timeline(weekly, output_path, domain, note=None, period=None):
+def plot_timeline(weekly, output_path, site, note=None, period=None):
     """Two panels on one time axis: down/recovery events, then captures per week."""
     import matplotlib
     matplotlib.use("Agg")
@@ -444,7 +469,7 @@ def plot_timeline(weekly, output_path, domain, note=None, period=None):
     if not any(downs) and not any(recoveries):
         ax.text(0.5, 0.5, "No down or recovery events in this period", transform=ax.transAxes,
                 ha="center", va="center", color="#6b6b69")
-    title = f"Wayback Machine crawl-observed availability transitions — {domain}"
+    title = f"Wayback Machine crawl-observed availability transitions — {site}"
     ax.set_title(f"{title}\n{note}" if note else title)
     ax.set_ylabel("Events per week")
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
@@ -466,7 +491,7 @@ def plot_timeline(weekly, output_path, domain, note=None, period=None):
     print(f"Saved chart to {output_path}")
 
 
-def run(domain=DEFAULT_DOMAIN, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_FROM_DATE,
+def run(site=DEFAULT_SITE, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_FROM_DATE,
         date_to=DEFAULT_TO_DATE, all_time=DEFAULT_ALL_TIME, output=DEFAULT_OUTPUT,
         json_out=DEFAULT_JSON_OUT, max_workers=DEFAULT_MAX_WORKERS, page_size=DEFAULT_PAGE_SIZE,
         retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR, scope=DEFAULT_SCOPE,
@@ -476,19 +501,19 @@ def run(domain=DEFAULT_DOMAIN, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_
     the CLI, e.g.:
 
         from wayback_seo import run
-        run(domain="www.dicasafalcone.com", date_from="20230101", output="out.png")
+        run(site="www.dicasafalcone.com", date_from="20230101", output="out.png")
 
-    Same parameters as the CLI flags (domain/--domain, input_path/--input,
+    Same parameters as the CLI flags (site/--site, input_path/--input,
     date_from/--from-date, date_to/--to-date, all_time/--all-time,
     output/--output, json_out/--json-out). Returns the weekly aggregate dict.
     """
-    if not domain and not input_path:
-        raise ValueError("provide domain= (live fetch) or input_path= (local CDX JSON file)")
+    if not site and not input_path:
+        raise ValueError("provide site= (live fetch) or input_path= (local CDX JSON file)")
 
     note = None
     if input_path:
         rows = load_cdx_file(input_path)
-        domain_label = domain or input_path
+        site_label = ", ".join(as_site_list(site)) if site else input_path
     else:
         if not all_time:
             if not date_to:
@@ -496,16 +521,16 @@ def run(domain=DEFAULT_DOMAIN, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_
             if not date_from:
                 to_dt = datetime.strptime(date_to, "%Y%m%d")
                 date_from = (to_dt - timedelta(days=365)).strftime("%Y%m%d")
-        print(f"Fetching CDX data for {domain} "
+        site_label = ", ".join(as_site_list(site))
+        print(f"Fetching CDX data for {site_label} "
               f"({'all time' if all_time else f'{date_from} to {date_to}'}) ...",
               file=sys.stderr)
-        domain_label = domain
-        rows, missing, num_pages = fetch_cdx(domain, date_from, date_to, max_workers=max_workers,
-                                             page_size=page_size, retries=retries,
-                                             cache_dir=cache_dir, scope=scope)
+        rows, missing, num_pages = fetch_sites(site, date_from, date_to, max_workers=max_workers,
+                                               page_size=page_size, retries=retries,
+                                               cache_dir=cache_dir, scope=scope)
         if missing:
             note = f"INCOMPLETE: {len(missing)} of {num_pages} CDX pages failed to download"
-            print(f"WARNING: {note} (pages {missing}). Rerun to fetch only those"
+            print(f"WARNING: {note} ({', '.join(missing)}). Rerun to fetch only those"
                   f"{'' if cache_dir else ' (needs --cache-dir)'}.", file=sys.stderr)
 
     print(f"Fetched {len(rows) - 1 if rows else 0} raw capture rows", file=sys.stderr)
@@ -532,51 +557,5 @@ def run(domain=DEFAULT_DOMAIN, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_
             json.dump(out, f, indent=2)
         print(f"Wrote weekly aggregates to {json_out}", file=sys.stderr)
 
-    plot_timeline(weekly, output, domain_label, note, period)
+    plot_timeline(weekly, output, site_label, note, period)
     return weekly
-
-
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--domain", default=DEFAULT_DOMAIN,
-                     help=f"Domain to query. Default: {DEFAULT_DOMAIN!r}")
-    ap.add_argument("--input", dest="input_path", default=DEFAULT_INPUT_PATH,
-                     help="Local CDX JSON file instead of live fetch (for testing)")
-    ap.add_argument("--from-date", dest="date_from", default=DEFAULT_FROM_DATE,
-                     help="CDX from= (yyyyMMdd...). Default: 365 days before --to-date.")
-    ap.add_argument("--to-date", dest="date_to", default=DEFAULT_TO_DATE,
-                     help="CDX to= (yyyyMMdd...). Default: today.")
-    ap.add_argument("--all-time", dest="all_time", action="store_true", default=DEFAULT_ALL_TIME,
-                     help="Fetch full history instead of the default 365-day window.")
-    ap.add_argument("--output", default=DEFAULT_OUTPUT, help="Output chart path")
-    ap.add_argument("--json-out", dest="json_out", default=DEFAULT_JSON_OUT,
-                     help="Optional: dump aggregated weekly counts as JSON")
-    ap.add_argument("--max-workers", dest="max_workers", type=int, default=DEFAULT_MAX_WORKERS,
-                     help=f"Parallel CDX page fetches. Default: {DEFAULT_MAX_WORKERS}")
-    ap.add_argument("--page-size", dest="page_size", type=int, default=DEFAULT_PAGE_SIZE,
-                     help=f"CDX pageSize (zipnum blocks/page); raise for fewer, bigger pages "
-                          f"on huge domains. Default: {DEFAULT_PAGE_SIZE}")
-    ap.add_argument("--down-statuses", dest="down_statuses", default=DEFAULT_DOWN_STATUSES,
-                     help=f"Statuses that count as down, e.g. '5xx' or '4xx,5xx,-404'. "
-                          f"Others are ignored. Default: {DEFAULT_DOWN_STATUSES!r}")
-    ap.add_argument("--scope", choices=["host", "domain"], default=DEFAULT_SCOPE,
-                     help=f"'host' = this host only; 'domain' = also every subdomain. "
-                          f"Default: {DEFAULT_SCOPE!r}")
-    ap.add_argument("--retries", type=int, default=DEFAULT_RETRIES,
-                     help=f"Extra attempts per request on 429/5xx/network errors. "
-                          f"Default: {DEFAULT_RETRIES}")
-    ap.add_argument("--cache-dir", dest="cache_dir", default=DEFAULT_CACHE_DIR,
-                     help=f"Save CDX responses here and reuse them on reruns. "
-                          f"Default: {DEFAULT_CACHE_DIR!r}")
-    ap.add_argument("--no-cache", dest="cache_dir", action="store_const", const=None,
-                     help="Always fetch from IA; don't read or write the cache.")
-    args = ap.parse_args()
-    try:
-        run(**vars(args))
-    except KeyboardInterrupt:
-        print("\nInterrupted.", file=sys.stderr)
-        os._exit(130)
-
-
-if __name__ == "__main__":
-    main()
