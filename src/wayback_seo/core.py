@@ -49,8 +49,9 @@ DEFAULT_PAGE_SIZE = 20           # zipnum blocks per page; larger = fewer, bigge
                                  # ~18,000 pages for one busy domain over one year at
                                  # default size) -- raise this to keep request count sane.
 DEFAULT_RETRIES = 5              # extra attempts per request on 429/5xx/network errors
-DEFAULT_DOWN_STATUSES = "4xx,5xx,-429"  # statuses that count as down; others (3xx, 429:
-                                        # IA's crawler rate-limited) are ignored
+DEFAULT_DOWN_STATUSES = "4xx,5xx,-403,-429"  # statuses that count as down; others are
+                                             # ignored: 3xx, and 403/429, which say how IA's
+                                             # crawler was treated, not what visitors saw
 DEFAULT_SCOPE = "host"           # "host" = this host only (IA treats www.x and x as one);
                                  # "domain" = also every subdomain
 DEFAULT_CACHE_DIR = "wayback_cache"  # successful CDX responses saved here, so a rerun
