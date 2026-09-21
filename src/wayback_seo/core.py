@@ -49,6 +49,10 @@ DEFAULT_PAGE_SIZE = 20           # zipnum blocks per page; larger = fewer, bigge
                                  # ~18,000 pages for one busy domain over one year at
                                  # default size) -- raise this to keep request count sane.
 DEFAULT_RETRIES = 5              # extra attempts per request on 429/5xx/network errors
+DEFAULT_DOWN_STATUSES = "4xx,5xx,-429"  # statuses that count as down; others (3xx, 429:
+                                        # IA's crawler rate-limited) are ignored
+DEFAULT_SCOPE = "host"           # "host" = this host only (IA treats www.x and x as one);
+                                 # "domain" = also every subdomain
 DEFAULT_CACHE_DIR = "wayback_cache"  # successful CDX responses saved here, so a rerun
                                      # resumes and can run offline; None = no cache
 
@@ -164,7 +168,7 @@ def _get_json(url, timeout, label, retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CA
 
 
 def _get_num_pages(domain, date_from=None, date_to=None, timeout=30, page_size=DEFAULT_PAGE_SIZE,
-                   retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR):
+                   retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR, scope=DEFAULT_SCOPE):
     """
     Ask CDX how many pages this query would span (fast, index-only check).
     showNumPages can't be combined with fl/filter/collapse, so this is a
@@ -173,7 +177,7 @@ def _get_num_pages(domain, date_from=None, date_to=None, timeout=30, page_size=D
     match between this call and the page fetches, or page boundaries
     won't line up.
     """
-    params = {"url": domain, "matchType": "domain", "output": "json",
+    params = {"url": domain, "matchType": scope, "output": "json",
               "showNumPages": "true", "pageSize": page_size}
     if date_from:
         params["from"] = date_from
@@ -207,10 +211,10 @@ def _get_num_pages(domain, date_from=None, date_to=None, timeout=30, page_size=D
 
 def _fetch_cdx_page(domain, page, date_from=None, date_to=None, timeout=120,
                      include_page_param=True, page_size=DEFAULT_PAGE_SIZE,
-                     retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR):
+                     retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR, scope=DEFAULT_SCOPE):
     params = {
         "url": domain,
-        "matchType": "domain",
+        "matchType": scope,
         "output": "json",
         "fl": "timestamp,original,statuscode,digest",
         "collapse": "digest",
@@ -227,9 +231,55 @@ def _fetch_cdx_page(domain, page, date_from=None, date_to=None, timeout=120,
     return _get_json(url, timeout, f"page {page}", retries, cache_dir)
 
 
+def _run_parallel(jobs, max_workers):
+    """
+    Run {key: zero-arg callable} on a thread pool. Returns (results, failed):
+    a job that still fails after its retries is listed in failed instead of
+    aborting the others.
+    """
+    results = {}
+    failed = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(job): key for key, job in jobs.items()}
+        try:
+            for fut in concurrent.futures.as_completed(futures):
+                key = futures[fut]
+                try:
+                    results[key] = fut.result()
+                except Exception as e:
+                    failed.append(key)
+                    print(f"[{key}] FAILED after retries ({type(e).__name__}: {e}); "
+                          f"continuing without it", file=sys.stderr)
+        except KeyboardInterrupt:
+            # Without this, ThreadPoolExecutor's __exit__ calls shutdown(wait=True)
+            # and blocks until every already-submitted request finishes downloading --
+            # with hundreds queued that can be many minutes, making Ctrl-C appear to
+            # do nothing. Cancel what hasn't started and hard-exit instead of waiting
+            # for in-flight requests to drain.
+            print(f"\nInterrupted — cancelling remaining fetches "
+                  f"({len(futures) - len(results) - len(failed)} still pending)...",
+                  file=sys.stderr)
+            ex.shutdown(wait=False, cancel_futures=True)
+            os._exit(130)  # 128 + SIGINT
+    return results, failed
+
+
+def _merge_rows(responses):
+    """Concatenate CDX JSON responses, keeping only the first header row."""
+    header = None
+    all_rows = []
+    for rows in responses:
+        if not rows:
+            continue
+        if header is None:
+            header = rows[0]
+        all_rows.extend(rows[1:])
+    return ([header] if header else []) + all_rows
+
+
 def fetch_cdx(domain, date_from=None, date_to=None, timeout=120,
                max_workers=DEFAULT_MAX_WORKERS, page_size=DEFAULT_PAGE_SIZE,
-               retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR):
+               retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR, scope=DEFAULT_SCOPE):
     """
     Fetch CDX rows for an entire domain, using the CDX pagination API to
     split large domains into pages fetched in parallel (falls back to a
@@ -245,57 +295,24 @@ def fetch_cdx(domain, date_from=None, date_to=None, timeout=120,
     its retries is listed in missing_pages instead of aborting the whole run.
     """
     num_pages = _get_num_pages(domain, date_from, date_to, page_size=page_size,
-                               retries=retries, cache_dir=cache_dir)
+                               retries=retries, cache_dir=cache_dir, scope=scope)
     print(f"CDX reports ~{num_pages} page(s) for this query at pageSize={page_size} "
           f"(unfiltered estimate; fetching with {min(max_workers, num_pages)} workers)",
           file=sys.stderr)
 
     if num_pages <= 1:
         rows = _fetch_cdx_page(domain, 0, date_from, date_to, timeout, include_page_param=False,
-                               retries=retries, cache_dir=cache_dir)
+                               retries=retries, cache_dir=cache_dir, scope=scope)
         return rows, [], 1
 
-    pages = {}
-    missing = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futures = {
-            ex.submit(_fetch_cdx_page, domain, p, date_from, date_to, timeout,
-                      True, page_size, retries, cache_dir): p
-            for p in range(num_pages)
-        }
-        try:
-            for fut in concurrent.futures.as_completed(futures):
-                p = futures[fut]
-                try:
-                    pages[p] = fut.result()
-                except Exception as e:
-                    missing.append(p)
-                    print(f"[page {p}] FAILED after retries ({type(e).__name__}: {e}); "
-                          f"continuing without it", file=sys.stderr)
-        except KeyboardInterrupt:
-            # Without this, ThreadPoolExecutor's __exit__ calls shutdown(wait=True)
-            # and blocks until every already-submitted page finishes downloading --
-            # with hundreds of pages queued that can be many minutes, making Ctrl-C
-            # appear to do nothing. Cancel what hasn't started and hard-exit instead
-            # of waiting for in-flight requests to drain.
-            print(f"\nInterrupted — cancelling remaining page fetches "
-                  f"({len(futures) - len(pages) - len(missing)} still pending)...",
-                  file=sys.stderr)
-            for f in futures:
-                f.cancel()
-            ex.shutdown(wait=False, cancel_futures=True)
-            os._exit(130)  # 128 + SIGINT
-
-    header = None
-    all_rows = []
-    for p in range(num_pages):
-        rows = pages.get(p) or []
-        if not rows:
-            continue
-        if header is None:
-            header = rows[0]
-        all_rows.extend(rows[1:])
-    return ([header] if header else []) + all_rows, sorted(missing), num_pages
+    jobs = {
+        f"page {p}": (lambda p=p: _fetch_cdx_page(domain, p, date_from, date_to, timeout, True,
+                                                   page_size, retries, cache_dir, scope))
+        for p in range(num_pages)
+    }
+    pages, failed = _run_parallel(jobs, max_workers)
+    missing = sorted(int(key.split()[1]) for key in failed)
+    return _merge_rows(pages.get(f"page {p}") for p in range(num_pages)), missing, num_pages
 
 
 def load_cdx_file(path):
@@ -324,12 +341,37 @@ def rows_to_records(rows):
     return records
 
 
-def detect_events(records):
+def parse_statuses(spec):
+    """
+    Turn a spec like "4xx,5xx,-429" into a set of status codes: "4xx" adds
+    400-499, "404" adds one code, a leading "-" removes instead of adding.
+    """
+    codes = set()
+    for item in (part.strip() for part in spec.split(",")):
+        if not item:
+            continue
+        remove = item.startswith("-")
+        item = item.lstrip("-")
+        if len(item) == 3 and item[0].isdigit() and item[1:].lower() == "xx":
+            group = set(range(int(item[0]) * 100, int(item[0]) * 100 + 100))
+        elif item.isdigit():
+            group = {int(item)}
+        else:
+            raise ValueError(f"bad status spec item {item!r}; use e.g. 404, 5xx, -429")
+        codes = codes - group if remove else codes | group
+    return codes
+
+
+def detect_events(records, down_statuses=None):
     """
     Given (url, timestamp, status) tuples, sorted per-URL by time,
-    return list of (url, timestamp, event_type) where event_type in
-    {'down', 'recovery'}.
+    return list of (url, timestamp, event_type, status) where event_type
+    in {'down', 'recovery'}. A capture is up on 200, down on a status in
+    down_statuses, and ignored otherwise (e.g. redirects), so it neither
+    starts nor ends a down period.
     """
+    if down_statuses is None:
+        down_statuses = parse_statuses(DEFAULT_DOWN_STATUSES)
     by_url = defaultdict(list)
     for url, ts, status in records:
         by_url[url].append((ts, status))
@@ -337,11 +379,14 @@ def detect_events(records):
     events = []
     for url, captures in by_url.items():
         captures.sort(key=lambda c: c[0])
-        prev_ok = None  # None = unknown yet, True = last seen 200, False = last seen non-200
+        prev_ok = None  # None = unknown yet, True = last seen up, False = last seen down
         for ts, status in captures:
-            if status == 429:
-                continue  # IA's crawler was rate-limited: says nothing about the site
-            ok = (status == 200)
+            if status == 200:
+                ok = True
+            elif status in down_statuses:
+                ok = False
+            else:
+                continue
             if prev_ok is None:
                 prev_ok = ok
                 continue
@@ -373,7 +418,7 @@ def aggregate_weekly(events, url_filter=None):
     return dict(sorted(weekly.items()))
 
 
-def plot_timeline(weekly, output_path, domain, note=None):
+def plot_timeline(weekly, output_path, domain, note=None, period=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -384,9 +429,11 @@ def plot_timeline(weekly, output_path, domain, note=None):
     recoveries = [weekly[w]["recovery"] for w in weeks]  # positive = above axis
 
     fig, ax = plt.subplots(figsize=(12, 5))
-    ax.bar(weeks, downs, width=5, color="#c0392b", label="Down events (200→non-200)")
-    ax.bar(weeks, recoveries, width=5, color="#27ae60", label="Recovery events (non-200→200)")
+    ax.bar(weeks, downs, width=5, color="#c0392b", label="Down events (200→down status)")
+    ax.bar(weeks, recoveries, width=5, color="#27ae60", label="Recovery events (down status→200)")
     ax.axhline(0, color="black", linewidth=0.8)
+    if period:
+        ax.set_xlim(*period)  # whole analysed period, so quiet stretches stay visible
     title = f"Wayback Machine crawl-observed availability transitions — {domain}"
     ax.set_title(f"{title}\n{note}" if note else title)
     ax.set_ylabel("Events per week")
@@ -403,7 +450,8 @@ def plot_timeline(weekly, output_path, domain, note=None):
 def run(domain=DEFAULT_DOMAIN, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_FROM_DATE,
         date_to=DEFAULT_TO_DATE, all_time=DEFAULT_ALL_TIME, output=DEFAULT_OUTPUT,
         json_out=DEFAULT_JSON_OUT, max_workers=DEFAULT_MAX_WORKERS, page_size=DEFAULT_PAGE_SIZE,
-        retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR):
+        retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR, scope=DEFAULT_SCOPE,
+        down_statuses=DEFAULT_DOWN_STATUSES):
     """
     Programmatic entry point — call this directly from Python instead of
     the CLI, e.g.:
@@ -432,10 +480,10 @@ def run(domain=DEFAULT_DOMAIN, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_
         print(f"Fetching CDX data for {domain} "
               f"({'all time' if all_time else f'{date_from} to {date_to}'}) ...",
               file=sys.stderr)
+        domain_label = domain
         rows, missing, num_pages = fetch_cdx(domain, date_from, date_to, max_workers=max_workers,
                                              page_size=page_size, retries=retries,
-                                             cache_dir=cache_dir)
-        domain_label = domain
+                                             cache_dir=cache_dir, scope=scope)
         if missing:
             note = f"INCOMPLETE: {len(missing)} of {num_pages} CDX pages failed to download"
             print(f"WARNING: {note} (pages {missing}). Rerun to fetch only those"
@@ -443,8 +491,13 @@ def run(domain=DEFAULT_DOMAIN, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_
 
     print(f"Fetched {len(rows) - 1 if rows else 0} raw capture rows", file=sys.stderr)
     records = rows_to_records(rows)
+    period = None
+    if records:
+        start = datetime.strptime(date_from[:8], "%Y%m%d") if date_from else min(r[1] for r in records)
+        end = datetime.strptime(date_to[:8], "%Y%m%d") if date_to else max(r[1] for r in records)
+        period = (start.date(), end.date())
     print(f"{len(records)} records with parsable status codes", file=sys.stderr)
-    events = detect_events(records)
+    events = detect_events(records, parse_statuses(down_statuses))
     print(f"{len(events)} transition events detected", file=sys.stderr)
     weekly = aggregate_weekly(events)  # url_filter=lambda u: u == "..." to narrow later
 
@@ -461,7 +514,7 @@ def run(domain=DEFAULT_DOMAIN, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_
             json.dump(out, f, indent=2)
         print(f"Wrote weekly aggregates to {json_out}", file=sys.stderr)
 
-    plot_timeline(weekly, output, domain_label, note)
+    plot_timeline(weekly, output, domain_label, note, period)
     return weekly
 
 
@@ -485,6 +538,12 @@ def main():
     ap.add_argument("--page-size", dest="page_size", type=int, default=DEFAULT_PAGE_SIZE,
                      help=f"CDX pageSize (zipnum blocks/page); raise for fewer, bigger pages "
                           f"on huge domains. Default: {DEFAULT_PAGE_SIZE}")
+    ap.add_argument("--down-statuses", dest="down_statuses", default=DEFAULT_DOWN_STATUSES,
+                     help=f"Statuses that count as down, e.g. '5xx' or '4xx,5xx,-404'. "
+                          f"Others are ignored. Default: {DEFAULT_DOWN_STATUSES!r}")
+    ap.add_argument("--scope", choices=["host", "domain"], default=DEFAULT_SCOPE,
+                     help=f"'host' = this host only; 'domain' = also every subdomain. "
+                          f"Default: {DEFAULT_SCOPE!r}")
     ap.add_argument("--retries", type=int, default=DEFAULT_RETRIES,
                      help=f"Extra attempts per request on 429/5xx/network errors. "
                           f"Default: {DEFAULT_RETRIES}")
