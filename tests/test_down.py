@@ -26,3 +26,12 @@ def test_weekly_keeps_empty_weeks():
                 Capture("https://x.it/", datetime(2026, 1, 26), 200)]
     weeks = weekly([], captures, date(2026, 1, 5), date(2026, 1, 31))
     assert [w.captures for w in weeks] == [1, 0, 0, 1]
+    assert [w.days for w in weeks] == [7, 7, 7, 6]
+
+
+def test_partial_first_and_last_weeks_count_their_days():
+    # Sunday 21 Sep 2025 to Monday 21 Sep 2026
+    weeks = weekly([], [], date(2025, 9, 21), date(2026, 9, 21))
+    assert weeks[0].start == date(2025, 9, 15) and weeks[0].days == 1
+    assert weeks[-1].start == date(2026, 9, 21) and weeks[-1].days == 1
+    assert all(w.days == 7 for w in weeks[1:-1])

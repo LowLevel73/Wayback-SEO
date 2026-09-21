@@ -29,6 +29,8 @@ class Week:
     down: int = 0
     recovery: int = 0
     captures: int = 0
+    days: int = 7    # days of this week inside the period: fewer for a first or last
+                     # week that the period only partly covers
 
 
 @dataclass
@@ -95,18 +97,20 @@ def week_start(day):
 
 def weekly(events, captures, start=None, end=None):
     """
-    One Week per week from start to end (defaults: first and last capture),
-    including weeks with nothing in them, so gaps stay visible.
+    One Week per week, Monday to Sunday, from start to end (defaults: first
+    and last capture), including weeks with nothing in them, so gaps stay
+    visible. Weeks always start on Monday so that charts can be compared; a
+    first or last week the period only partly covers has fewer days.
     """
     days = [c.time.date() for c in captures]
     if not days and not (start and end):
         return []
-    first = week_start(start or min(days))
-    last = week_start(end or max(days))
+    start, end = start or min(days), end or max(days)
     weeks = {}
-    day = first
-    while day <= last:
-        weeks[day] = Week(day)
+    day = week_start(start)
+    while day <= end:
+        inside = (min(day + timedelta(days=6), end) - max(day, start)).days + 1
+        weeks[day] = Week(day, days=inside)
         day += timedelta(days=7)
     for event in events:
         week = weeks.get(week_start(event.time.date()))

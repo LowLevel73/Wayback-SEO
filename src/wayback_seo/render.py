@@ -6,6 +6,7 @@ import csv
 import dataclasses
 import json
 from collections import Counter
+from datetime import timedelta
 
 from .migration import CATEGORIES
 
@@ -64,12 +65,13 @@ def down_chart(result, path):
     from matplotlib.ticker import MaxNLocator
 
     weeks = [w.start for w in result.weeks]
+    middles = [start + timedelta(days=3.5) for start in weeks]  # a bar spans its whole week
     downs = [-w.down for w in result.weeks]           # below the axis
     recoveries = [w.recovery for w in result.weeks]   # above the axis
     fig, (ax, ax_captures) = plt.subplots(2, 1, figsize=(12, 8), sharex=True,
                                           gridspec_kw={"height_ratios": [3, 2]})
-    ax.bar(weeks, downs, width=5, color="#c0392b", label="Down events (200→down status)")
-    ax.bar(weeks, recoveries, width=5, color="#27ae60",
+    ax.bar(middles, downs, width=5, color="#c0392b", label="Down events (200→down status)")
+    ax.bar(middles, recoveries, width=5, color="#27ae60",
            label="Recovery events (down status→200)")
     ax.axhline(0, color="black", linewidth=0.8)
     if not any(downs) and not any(recoveries):
@@ -82,12 +84,21 @@ def down_chart(result, path):
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax.legend(loc="upper left")
 
-    ax_captures.bar(weeks, [w.captures for w in result.weeks], width=5, color="#2a78d6")
+    ax_captures.bar(middles, [w.captures for w in result.weeks], width=5, color="#2a78d6")
     ax_captures.set_title("Captures per week (an unreachable site is not archived, so outages "
                           "can show up as dips)", fontsize=10, loc="left")
+    partial = [w for w in result.weeks if w.days < 7]
+    for week in partial:  # shaded: fewer than 7 days, so lower counts are expected
+        for panel in (ax, ax_captures):
+            panel.axvspan(week.start, week.start + timedelta(days=7),
+                          color="#e6e6e3", zorder=0, lw=0)
+    if partial:
+        ax_captures.text(1, 1.02, "grey: weeks only partly inside the period",
+                         transform=ax_captures.transAxes, ha="right", va="bottom",
+                         fontsize=9, color="#6b6b69")
     ax_captures.set_ylabel("Captures per week")
-    if weeks:
-        ax.set_xlim(result.start or weeks[0], result.end or weeks[-1])
+    if weeks:  # whole weeks, Monday to Sunday, so charts line up with each other
+        ax.set_xlim(weeks[0], weeks[-1] + timedelta(days=7))
     locator = mdates.AutoDateLocator(minticks=8, maxticks=20)
     ax_captures.xaxis.set_major_locator(locator)
     ax_captures.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
