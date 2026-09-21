@@ -20,10 +20,10 @@ from . import core, migration, robots
 def _common_options():
     """Options shared by every sub-tool: what to query and how to download it."""
     p = argparse.ArgumentParser(add_help=False)
-    p.add_argument("--site", nargs="+", default=[core.DEFAULT_SITE],
+    p.add_argument("--site", nargs="+", required=True,
                    help=f"Host to analyse, or a path such as www.example.com/shop/ to "
                         f"analyse only the URLs under it. Several values are analysed "
-                        f"together. Default: {core.DEFAULT_SITE!r}")
+                        f"together.")
     p.add_argument("--scope", choices=["host", "domain"], default=core.DEFAULT_SCOPE,
                    help=f"'host' = this host only; 'domain' = also every subdomain. "
                         f"Ignored when --site has a path. "
@@ -121,7 +121,7 @@ def main():
             robots.run_robots(**args)
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
-        os._exit(130)
+        os._exit(130)  # 128 + SIGINT; don't wait for requests still in flight
 
 
 if __name__ == "__main__":

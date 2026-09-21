@@ -34,7 +34,6 @@ CDX_BASE = "https://web.archive.org/cdx/search/cdx"
 # run the tool with no arguments at all (e.g. `wayback-seo down`),
 # or override any of them individually via CLI flags.
 # ---------------------------------------------------------------------------
-DEFAULT_SITE = "www.dicasafalcone.com"
 DEFAULT_INPUT_PATH = None        # local CDX JSON file instead of live fetch
 DEFAULT_FROM_DATE = None         # yyyyMMdd...; None = 365 days before DEFAULT_TO_DATE
 DEFAULT_TO_DATE = None           # yyyyMMdd...; None = today
@@ -43,10 +42,9 @@ DEFAULT_OUTPUT = "wayback_timeline.png"
 DEFAULT_JSON_OUT = None          # e.g. "weekly_agg.json"; None = skip JSON dump
 DEFAULT_MAX_WORKERS = 3          # parallel CDX page fetches; IA rate-limits (and may
                                  # temporarily block) clients that send too many requests
-DEFAULT_PAGE_SIZE = 20           # zipnum blocks per page; larger = fewer, bigger pages.
-                                 # IA's real default is apparently very small (observed
-                                 # ~18,000 pages for one busy domain over one year at
-                                 # default size) -- raise this to keep request count sane.
+DEFAULT_PAGE_SIZE = 200          # zipnum blocks per page; larger = fewer, bigger pages.
+                                 # IA's own default is tiny (~18,000 pages for one busy
+                                 # site); 200 kept a year of corriere.it to 41 requests.
 DEFAULT_RETRIES = 5              # extra attempts per request on 429/5xx/network errors
 DEFAULT_DOWN_STATUSES = "4xx,5xx,-403,-429"  # statuses that count as down; others are
                                              # ignored: 3xx, and 403/429, which say how IA's
@@ -70,7 +68,7 @@ def _download(url, timeout, label):
     """
     print(f"[{label}] URL: {url}", file=sys.stderr)
     req = Request(url, headers={
-        "User-Agent": "wayback-seo/1.0",
+        "User-Agent": "wayback-seo/0.1 (+https://github.com/LowLevel73/Wayback-SEO)",
         "Accept-Encoding": "gzip",
     })
     t0 = time.time()
@@ -145,19 +143,24 @@ def _get_json(url, timeout, label, retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CA
                 raw = f.read()
             return json.loads(raw) if raw else []
 
-    raw = _download_with_retries(url, timeout, label, retries)
-    if not raw:
-        print(f"[{label}] WARNING: response body was empty (0 bytes) — "
-              f"server returned HTTP 200 with no content for this query.", file=sys.stderr)
-        obj = []
-    else:
+    for attempt in range(retries + 1):
+        raw = _download_with_retries(url, timeout, label, retries)
+        if not raw:
+            print(f"[{label}] WARNING: response body was empty (0 bytes) — "
+                  f"server returned HTTP 200 with no content for this query.", file=sys.stderr)
+            obj = []
+            break
         try:
             obj = json.loads(raw)
+            break
         except json.JSONDecodeError:
-            preview = raw[:500].decode(errors="replace")
-            print(f"[{label}] WARNING: response body was not valid JSON. "
-                  f"First 500 bytes: {preview!r}", file=sys.stderr)
-            raise
+            # IA sometimes cuts a long response short; a new download usually completes.
+            preview = raw[-200:].decode(errors="replace")
+            print(f"[{label}] WARNING: response is not valid JSON ({len(raw)} bytes, ends "
+                  f"with {preview!r}); attempt {attempt + 1}/{retries + 1}", file=sys.stderr)
+            if attempt == retries:
+                raise
+            time.sleep(BACKOFF_BASE * 2 ** attempt)
 
     if cache_path:
         os.makedirs(cache_dir, exist_ok=True)
@@ -246,28 +249,24 @@ def _run_parallel(jobs, max_workers):
     """
     results = {}
     failed = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futures = {ex.submit(job): key for key, job in jobs.items()}
-        try:
-            for fut in concurrent.futures.as_completed(futures):
-                key = futures[fut]
-                try:
-                    results[key] = fut.result()
-                except Exception as e:
-                    failed.append(key)
-                    print(f"[{key}] FAILED after retries ({type(e).__name__}: {e}); "
-                          f"continuing without it", file=sys.stderr)
-        except KeyboardInterrupt:
-            # Without this, ThreadPoolExecutor's __exit__ calls shutdown(wait=True)
-            # and blocks until every already-submitted request finishes downloading --
-            # with hundreds queued that can be many minutes, making Ctrl-C appear to
-            # do nothing. Cancel what hasn't started and hard-exit instead of waiting
-            # for in-flight requests to drain.
-            print(f"\nInterrupted — cancelling remaining fetches "
-                  f"({len(futures) - len(results) - len(failed)} still pending)...",
-                  file=sys.stderr)
-            ex.shutdown(wait=False, cancel_futures=True)
-            os._exit(130)  # 128 + SIGINT
+    # No "with" block: its exit waits for every queued request, so Ctrl-C would
+    # appear to do nothing for minutes. On interrupt, cancel what hasn't started
+    # and re-raise; the command line then exits without waiting for the rest.
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+    futures = {ex.submit(job): key for key, job in jobs.items()}
+    try:
+        for fut in concurrent.futures.as_completed(futures):
+            key = futures[fut]
+            try:
+                results[key] = fut.result()
+            except Exception as e:
+                failed.append(key)
+                print(f"[{key}] FAILED after retries ({type(e).__name__}: {e}); "
+                      f"continuing without it", file=sys.stderr)
+    except KeyboardInterrupt:
+        ex.shutdown(wait=False, cancel_futures=True)
+        raise
+    ex.shutdown(wait=True)
     return results, failed
 
 
@@ -491,7 +490,7 @@ def plot_timeline(weekly, output_path, site, note=None, period=None):
     print(f"Saved chart to {output_path}")
 
 
-def run(site=DEFAULT_SITE, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_FROM_DATE,
+def run(site=None, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_FROM_DATE,
         date_to=DEFAULT_TO_DATE, all_time=DEFAULT_ALL_TIME, output=DEFAULT_OUTPUT,
         json_out=DEFAULT_JSON_OUT, max_workers=DEFAULT_MAX_WORKERS, page_size=DEFAULT_PAGE_SIZE,
         retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR, scope=DEFAULT_SCOPE,
@@ -501,7 +500,7 @@ def run(site=DEFAULT_SITE, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_FROM
     the CLI, e.g.:
 
         from wayback_seo import run
-        run(site="www.dicasafalcone.com", date_from="20230101", output="out.png")
+        run(site="www.example.com", date_from="20230101", output="out.png")
 
     Same parameters as the CLI flags (site/--site, input_path/--input,
     date_from/--from-date, date_to/--to-date, all_time/--all-time,

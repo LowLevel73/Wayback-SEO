@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from http.client import HTTPConnection, HTTPSConnection, HTTPException
 from urllib.parse import quote, urljoin, urlsplit
 
-from .core import (DEFAULT_CACHE_DIR, DEFAULT_SITE, DEFAULT_MAX_WORKERS, DEFAULT_PAGE_SIZE,
+from .core import (DEFAULT_CACHE_DIR, DEFAULT_MAX_WORKERS, DEFAULT_PAGE_SIZE,
                    DEFAULT_RETRIES, DEFAULT_SCOPE, _run_parallel, as_site_list, fetch_sites,
                    rows_to_records)
 
@@ -27,7 +27,7 @@ DEFAULT_CHECK_WORKERS = 2        # parallel live requests; keep low, this is som
 DEFAULT_CHECK_DELAY = 0.5        # seconds each worker waits before a request
 DEFAULT_CHECK_TIMEOUT = 20
 MAX_HOPS = 10
-LIVE_USER_AGENT = "wayback-seo/0.1 (migration check)"
+LIVE_USER_AGENT = "wayback-seo/0.1 migration check (+https://github.com/LowLevel73/Wayback-SEO)"
 
 PERMANENT = {301, 308}
 TEMPORARY = {302, 303, 307}
@@ -161,7 +161,7 @@ def classify(url, hops, problem):
     return "redirected", flags
 
 
-def run_migration(site=DEFAULT_SITE, date=None, months_before=DEFAULT_MONTHS_BEFORE,
+def run_migration(site=None, date=None, months_before=DEFAULT_MONTHS_BEFORE,
                   margin_days=DEFAULT_MARGIN_DAYS, output=DEFAULT_OUTPUT,
                   max_urls=DEFAULT_MAX_URLS, check_workers=DEFAULT_CHECK_WORKERS,
                   check_delay=DEFAULT_CHECK_DELAY, include_query=False,
@@ -172,8 +172,8 @@ def run_migration(site=DEFAULT_SITE, date=None, months_before=DEFAULT_MONTHS_BEF
     migration date (datetime or "2025-11-17"). Writes one CSV row per old URL
     and returns the list of result dicts.
     """
-    if date is None:
-        raise ValueError("provide the approximate migration date")
+    if not site or date is None:
+        raise ValueError("provide site= and the approximate migration date")
     if isinstance(date, str):
         date = parse_date(date)
     end = date - timedelta(days=margin_days)

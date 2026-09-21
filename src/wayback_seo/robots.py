@@ -10,7 +10,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from .core import (CDX_BASE, DEFAULT_CACHE_DIR, DEFAULT_MAX_WORKERS, DEFAULT_RETRIES,
-                   DEFAULT_SITE, _download_with_retries, _get_json, _run_parallel,
+                   _download_with_retries, _get_json, _run_parallel,
                    as_site_list)
 from .robotstxt import blocks_everything, parse_groups, parse_sitemaps, rules_by_agent
 
@@ -89,7 +89,7 @@ def _describe(text, status):
     return None
 
 
-def run_robots(site=DEFAULT_SITE, date_from=None, date_to=None, output=DEFAULT_OUTPUT,
+def run_robots(site=None, date_from=None, date_to=None, output=DEFAULT_OUTPUT,
                max_versions=DEFAULT_MAX_VERSIONS, max_workers=DEFAULT_MAX_WORKERS,
                retries=DEFAULT_RETRIES, cache_dir=DEFAULT_CACHE_DIR, **_ignored):
     """
@@ -97,6 +97,8 @@ def run_robots(site=DEFAULT_SITE, date_from=None, date_to=None, output=DEFAULT_O
     distinct host among the sites. Prints the rule changes, writes them as CSV
     and returns the list of change dicts.
     """
+    if not site:
+        raise ValueError("provide site=")
     hosts = dict.fromkeys(robots_url(s) for s in as_site_list(site))
     changes = []
     for host_robots in hosts:
