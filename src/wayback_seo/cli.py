@@ -39,6 +39,9 @@ def _common_options():
     p.add_argument("--page-size", type=int, default=DEFAULTS.page_size,
                    help=f"CDX pageSize; larger means fewer, bigger requests. "
                         f"Default: {DEFAULTS.page_size}")
+    p.add_argument("--requests-per-minute", type=int, default=DEFAULTS.requests_per_minute,
+                   help=f"Most requests per minute to the Wayback Machine, which blocks "
+                        f"clients that exceed about 60. Default: {DEFAULTS.requests_per_minute}")
     p.add_argument("--retries", type=int, default=DEFAULTS.retries,
                    help=f"Extra attempts per request after errors. Default: {DEFAULTS.retries}")
     p.add_argument("--cache-dir", default=DEFAULTS.cache_dir,
@@ -102,7 +105,8 @@ def _parser():
 
 def _run(args):
     options = FetchOptions(scope=args.scope, page_size=args.page_size,
-                           max_workers=args.max_workers, retries=args.retries,
+                           max_workers=args.max_workers,
+                           requests_per_minute=args.requests_per_minute, retries=args.retries,
                            cache_dir=args.cache_dir, refresh=args.refresh)
     if args.tool == "down":
         result = down.run_down(args.site, args.from_date, args.to_date, args.all_time,

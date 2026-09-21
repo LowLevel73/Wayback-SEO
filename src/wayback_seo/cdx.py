@@ -1,11 +1,10 @@
 """
 Client for the Wayback Machine: the CDX API, which lists captures, and raw
-archived files. Handles pagination, retries and the on-disk cache.
+archived files. Handles pagination, pacing, retries and the on-disk cache.
 """
 import gzip
 import hashlib
 import http.client
-import json
 import os
 import threading
 import time
@@ -20,6 +19,7 @@ from .util import cdx_date, log, run_parallel
 CDX_BASE = "https://web.archive.org/cdx/search/cdx"
 RAW_CAPTURE = "https://web.archive.org/web/{timestamp}id_/{url}"
 USER_AGENT = "wayback-seo/0.1 (+https://github.com/LowLevel73/Wayback-SEO)"
+FIELDS = "timestamp,original,statuscode"
 
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 NETWORK_ERRORS = (URLError, TimeoutError, ConnectionError, http.client.HTTPException)
@@ -36,7 +36,9 @@ class FetchOptions:
     page_size: int = 200         # zipnum blocks per page; IA's own default is tiny (~18,000
                                  # pages for one busy site), 200 kept a year of corriere.it
                                  # to 41 requests
-    max_workers: int = 3         # parallel requests; IA blocks clients that send too many
+    max_workers: int = 3         # parallel requests
+    requests_per_minute: int = 55  # IA staff: "an average of 60/min. Over that and we start
+                                   # sending 429s", and ignoring those leads to a firewall block
     retries: int = 5             # extra attempts on 429/5xx, network errors and cut-off bodies
     cache_dir: str | None = "wayback_cache"  # responses saved here and reused by later runs,
                                              # so a rerun resumes and can run offline;
@@ -82,6 +84,32 @@ class Cache:
         os.replace(tmp, path)  # atomic, so an interrupted run never leaves half a file
 
 
+class Pacer:
+    """
+    Paces every request to the Wayback Machine across all threads: starts are
+    spaced to stay under a requests-per-minute limit, and a "slow down"
+    signal (429, or a refused connection when IA's firewall blocks us) pauses
+    all threads, not just the one that received it.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._next_start = 0.0
+
+    def wait(self, requests_per_minute):
+        with self._lock:
+            start = max(time.monotonic(), self._next_start)
+            self._next_start = start + 60 / requests_per_minute
+        time.sleep(max(0.0, start - time.monotonic()))
+
+    def pause(self, seconds):
+        with self._lock:
+            self._next_start = max(self._next_start, time.monotonic() + seconds)
+
+
+PACER = Pacer()  # one per process: IA counts requests per client, not per call
+
+
 def _download(url, timeout):
     """One GET with gzip; returns the decoded body."""
     log.debug("GET %s", url)
@@ -101,51 +129,82 @@ def _retry_after(err):
     return int(value) if value and value.strip().isdigit() else None
 
 
+def _is_slow_down(err):
+    """IA asking us to slow down: a 429, or its firewall refusing the connection."""
+    if isinstance(err, HTTPError):
+        return err.code == 429
+    return isinstance(getattr(err, "reason", err), ConnectionRefusedError)
+
+
 def download(url, options, label):
-    """_download(), retrying 429/5xx and network errors with exponential backoff."""
+    """
+    _download() through the shared pacer, retrying 429/5xx and network errors
+    with exponential backoff. A slow-down signal pauses every thread.
+    """
     for attempt in range(options.retries + 1):
+        PACER.wait(options.requests_per_minute)
         try:
             return _download(url, options.timeout)
         except HTTPError as e:
             if e.code not in RETRY_STATUSES or attempt == options.retries:
                 raise
-            wait, reason = _retry_after(e) or BACKOFF_BASE * 2 ** attempt, f"HTTP {e.code}"
+            error, reason = e, f"HTTP {e.code}"
+            wait = _retry_after(e) or BACKOFF_BASE * 2 ** attempt
         except NETWORK_ERRORS as e:
             if attempt == options.retries:
                 raise
-            wait, reason = BACKOFF_BASE * 2 ** attempt, f"{type(e).__name__}: {e}"
+            error, wait, reason = e, BACKOFF_BASE * 2 ** attempt, f"{type(e).__name__}: {e}"
         wait = min(wait, MAX_WAIT)
-        log.info("%s: %s; retry %d/%d in %ds", label, reason, attempt + 1, options.retries,
-                 wait)
-        time.sleep(wait)
+        if _is_slow_down(error):
+            PACER.pause(wait)
+            log.warning("%s: the Wayback Machine asks to slow down (%s); pausing all requests "
+                        "for %ds", label, reason, wait)
+        else:
+            log.info("%s: %s; retry %d/%d in %ds", label, reason, attempt + 1, options.retries,
+                     wait)
+            time.sleep(wait)
 
 
-def get_json(url, options, label):
+def _parse_rows(raw):
     """
-    (data, cached_on): a JSON CDX response, reused from the cache unless
+    Plain-text CDX output: one capture per line, fields separated by spaces
+    (IA encodes spaces inside URLs). A response IA cut short ends mid-line;
+    that raises ValueError so the caller downloads it again.
+    """
+    text = raw.decode("utf-8", errors="replace")
+    if text and not text.endswith("\n"):
+        raise ValueError("response cut short")
+    rows = [line.split(" ") for line in text.splitlines() if line]
+    if any(len(row) != 3 for row in rows):
+        raise ValueError("response cut short")
+    return rows
+
+
+def get_rows(url, options, label, parse=_parse_rows):
+    """
+    (rows, cached_on): a CDX response, reused from the cache unless
     options.refresh, else downloaded and cached. cached_on is the date a
     reused response was downloaded, None for a fresh download.
     """
     cache = Cache(options.cache_dir)
     if not options.refresh:
-        raw, cached_on = cache.get(url, ".json")
+        raw, cached_on = cache.get(url, ".cdx")
         if raw is not None:
             log.debug("%s: from cache (downloaded %s)", label, cached_on)
-            return (json.loads(raw) if raw else []), cached_on
+            return parse(raw), cached_on
     for attempt in range(options.retries + 1):
         raw = download(url, options, label)
         try:
-            data = json.loads(raw) if raw else []
+            rows = parse(raw)
             break
-        except json.JSONDecodeError:
+        except ValueError:
             # IA sometimes cuts a long response short; a new download usually completes.
             if attempt == options.retries:
                 raise
             log.info("%s: response cut short (%d bytes); retry %d/%d", label, len(raw),
                      attempt + 1, options.retries)
-            time.sleep(BACKOFF_BASE * 2 ** attempt)
-    cache.put(url, ".json", raw)
-    return data, None
+    cache.put(url, ".cdx", raw)
+    return rows, None
 
 
 def get_raw_capture(timestamp, url, options):
@@ -166,8 +225,7 @@ def match_type(site, scope):
 
 
 def _query_url(site, date_from, date_to, options, **extra):
-    params = {"url": site, "matchType": match_type(site, options.scope), "output": "json",
-              **extra}
+    params = {"url": site, "matchType": match_type(site, options.scope), **extra}
     if date_from:
         params["from"] = date_from
     if date_to:
@@ -177,16 +235,17 @@ def _query_url(site, date_from, date_to, options, **extra):
 
 def _num_pages(site, date_from, date_to, options):
     """
-    How many pages the query spans. IA answers [["numpages"], ["41"]]. The
-    count ignores filters and dates, so it only sizes the pagination; pageSize
-    must match the page requests or the boundaries won't line up.
+    How many pages the query spans; IA answers with a bare number. The count
+    ignores filters and dates, so it only sizes the pagination; pageSize must
+    match the page requests or the boundaries won't line up.
     """
     url = _query_url(site, date_from, date_to, options, showNumPages="true",
                      pageSize=options.page_size)
     try:
-        data, cached_on = get_json(url, options, "page count")
-        return max(1, int(data[1][0]) if isinstance(data, list) else int(data)), cached_on
-    except (*NETWORK_ERRORS, json.JSONDecodeError, ValueError, TypeError, IndexError) as e:
+        count, cached_on = get_rows(url, options, "page count",
+                                    parse=lambda raw: int(raw.decode().strip()))
+        return max(1, count), cached_on
+    except (*NETWORK_ERRORS, ValueError) as e:
         log.warning("could not get the page count (%s); trying a single request", e)
         return 1, None
 
@@ -199,10 +258,10 @@ def _fetch_page(site, page, date_from, date_to, options):
     query changed IA's answer for at least one real site.
     """
     paging = {} if page is None else {"page": page, "pageSize": options.page_size}
-    url = _query_url(site, date_from, date_to, options, fl="timestamp,original,statuscode",
-                     collapse="digest", filter="mimetype:text/html", **paging)
+    url = _query_url(site, date_from, date_to, options, fl=FIELDS, collapse="digest",
+                     filter="mimetype:text/html", **paging)
     label = f"{site} page {page + 1}" if page is not None else site
-    return get_json(url, options, label)
+    return get_rows(url, options, label)
 
 
 def _report_cache(what, dates):
@@ -214,18 +273,9 @@ def _report_cache(what, dates):
 
 
 def _to_captures(rows):
-    """CDX rows (header first) as Capture objects; captures without a status are skipped."""
-    if not rows:
-        return []
-    column = {name: i for i, name in enumerate(rows[0])}
-    captures = []
-    for row in rows[1:]:
-        status = row[column["statuscode"]]
-        if status.isdigit():
-            captures.append(Capture(row[column["original"]],
-                                    datetime.strptime(row[column["timestamp"]], "%Y%m%d%H%M%S"),
-                                    int(status)))
-    return captures
+    """Rows of [timestamp, original, status] as Capture objects; rows without a status skipped."""
+    return [Capture(url, datetime.strptime(timestamp, "%Y%m%d%H%M%S"), int(status))
+            for timestamp, url, status in rows or [] if status.isdigit()]
 
 
 def fetch_captures(sites, date_from=None, date_to=None, options=None):
@@ -265,12 +315,11 @@ def list_exact(url, date_from=None, date_to=None, options=None):
     URL, status string). Used for small files such as robots.txt.
     """
     options = options or FetchOptions()
-    params = {"url": url, "matchType": "exact", "output": "json",
-              "fl": "timestamp,original,statuscode", "collapse": "digest"}
+    params = {"url": url, "matchType": "exact", "fl": FIELDS, "collapse": "digest"}
     if date_from:
         params["from"] = cdx_date(date_from)
     if date_to:
         params["to"] = cdx_date(date_to)
-    rows, cached_on = get_json(f"{CDX_BASE}?{urlencode(params)}", options, url)
+    rows, cached_on = get_rows(f"{CDX_BASE}?{urlencode(params)}", options, url)
     _report_cache(url, [cached_on])
-    return [tuple(row) for row in rows[1:]]
+    return [tuple(row) for row in rows]
