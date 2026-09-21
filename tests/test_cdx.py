@@ -1,12 +1,13 @@
 from datetime import date
 
-from wayback_seo.cdx import Cache, match_type
+from wayback_seo.cdx import Cache, target
 
 
-def test_match_type():
-    assert match_type("www.x.it", "host") == "host"
-    assert match_type("https://www.x.it/", "domain") == "domain"
-    assert match_type("www.x.it/shop/", "host") == "prefix"
+def test_target():
+    assert target("www.x.it") == ("www.x.it", "host")
+    assert target("https://www.x.it/") == ("https://www.x.it/", "host")
+    assert target("www.x.it/shop/") == ("www.x.it/shop/", "prefix")
+    assert target("*.x.it") == ("x.it", "domain")
 
 
 def test_cache_returns_data_with_its_download_date(tmp_path):
@@ -50,3 +51,19 @@ def test_pacer_spaces_requests_and_pauses_everyone():
     started = time.monotonic()
     pacer.wait(requests_per_minute=600)
     assert time.monotonic() - started >= 0.29
+
+
+def test_cache_limit_deletes_least_recently_used(tmp_path):
+    import os
+    from wayback_seo.cdx import cache_size, clear_cache
+    cache = Cache(str(tmp_path), limit_mb=1)
+    for name, age in (("old", 300), ("used", 200), ("new", 100)):  # 0.9 MB, under the limit
+        cache.put(name, ".cdx", b"x" * 300_000)
+        path = cache._path(name, ".cdx")
+        os.utime(path, (os.path.getmtime(path) - age, os.path.getmtime(path)))
+    cache.get("old", ".cdx")                      # "old" becomes the most recently used
+    cache.put("newest", ".cdx", b"x" * 300_000)  # 1.2 MB: trim the least recently used
+    assert cache.get("used", ".cdx")[0] is None
+    assert all(cache.get(name, ".cdx")[0] for name in ("old", "new", "newest"))
+    assert cache_size(str(tmp_path)) <= 0.9 * 1024 * 1024
+    assert clear_cache(str(tmp_path)) > 0 and cache_size(str(tmp_path)) == 0

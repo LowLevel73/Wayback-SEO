@@ -1,6 +1,3 @@
-internal/
-wayback_cache/
-wayback_timeline.png
 __pycache__/
 .venv/
 dist/

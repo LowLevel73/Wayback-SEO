@@ -34,7 +34,8 @@ class RobotsHistory:
 
 def robots_url(site):
     """robots.txt lives at the host root, whatever path the site has."""
-    return site.split("://", 1)[-1].split("/", 1)[0] + "/robots.txt"
+    host = site.split("://", 1)[-1].split("/", 1)[0]
+    return host.removeprefix("*.") + "/robots.txt"
 
 
 def parse_rules(text):

@@ -10,6 +10,12 @@ Wayback SEO: what the Wayback Machine's captures reveal about a website.
   wayback-seo robots --site www.example.com
       Every archived version of robots.txt and the rules each one changed.
 
+  wayback-seo web
+      The same tools in a web page, opened in your browser.
+
+  wayback-seo cache [--clear]
+      How much space the saved downloads take, or delete them.
+
 Dates can be written 2025-11-17 or 20251117.
 """
 import argparse
@@ -17,21 +23,21 @@ import logging
 import os
 import sys
 
-from . import down, migration, render, robots
-from .cdx import FetchOptions
+from . import config, down, migration, render, robots
+from .config import CONFIG_FILE
+from .cdx import FetchOptions, cache_size, clear_cache
+from .util import ANALYSES_DIR
 
 DEFAULTS = FetchOptions()
 
 
-def _common_options():
+def _common_options(settings):
     """Options shared by every sub-tool: what to query and how to download it."""
     p = argparse.ArgumentParser(add_help=False)
     p.add_argument("--site", nargs="+", required=True,
-                   help="Host to analyse, or a path such as www.example.com/shop/ to analyse "
-                        "only the URLs under it. Several values are analysed together.")
-    p.add_argument("--scope", choices=["host", "domain"], default=DEFAULTS.scope,
-                   help="'host' = this host only; 'domain' = also every subdomain. Ignored "
-                        f"when --site has a path. Default: {DEFAULTS.scope!r}")
+                   help="www.example.com (that host), www.example.com/shop/ (only that "
+                        "section) or *.example.com (every subdomain). Several are analysed "
+                        "together.")
     p.add_argument("--json", metavar="FILE", help="Also save the full result as JSON.")
     p.add_argument("--max-workers", type=int, default=DEFAULTS.max_workers,
                    help=f"Parallel requests to the Wayback Machine. "
@@ -39,9 +45,10 @@ def _common_options():
     p.add_argument("--page-size", type=int, default=DEFAULTS.page_size,
                    help=f"CDX pageSize; larger means fewer, bigger requests. "
                         f"Default: {DEFAULTS.page_size}")
-    p.add_argument("--requests-per-minute", type=int, default=DEFAULTS.requests_per_minute,
+    p.add_argument("--requests-per-minute", type=int, default=settings["requests_per_minute"],
                    help=f"Most requests per minute to the Wayback Machine, which blocks "
-                        f"clients that exceed about 60. Default: {DEFAULTS.requests_per_minute}")
+                        f"clients that exceed about 60. Default: "
+                        f"{settings['requests_per_minute']}, set in {CONFIG_FILE}")
     p.add_argument("--retries", type=int, default=DEFAULTS.retries,
                    help=f"Extra attempts per request after errors. Default: {DEFAULTS.retries}")
     p.add_argument("--cache-dir", default=DEFAULTS.cache_dir,
@@ -52,15 +59,18 @@ def _common_options():
                         "already in the cache, and update the cache.")
     p.add_argument("--no-cache", dest="cache_dir", action="store_const", const=None,
                    help="Don't read or write the cache at all.")
+    p.add_argument("--cache-limit", type=int, default=settings["cache_limit_mb"], metavar="MB",
+                   help=f"Largest size of the cache; past it, the least recently used data is "
+                        f"deleted. Default: {settings['cache_limit_mb']} MB, set in {CONFIG_FILE}")
     p.add_argument("--verbose", action="store_true", help="Show every request.")
     return p
 
 
-def _parser():
+def _parser(settings):
     ap = argparse.ArgumentParser(prog="wayback-seo", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="tool", required=True)
-    common = _common_options()
+    common = _common_options(settings)
 
     p = sub.add_parser("down", parents=[common], help="Down/recovery events and captures")
     p.add_argument("--from-date", help="Start of the period. Default: a year before the end.")
@@ -100,34 +110,54 @@ def _parser():
                    help=f"Most recent versions to download. "
                         f"Default: {robots.DEFAULT_MAX_VERSIONS}")
     p.add_argument("--output", default="robots_history.csv", help="CSV, one row per change.")
+
+    p = sub.add_parser("web", help="Open the tools in a web page")
+    p.add_argument("--port", type=int, default=settings["port"],
+                   help=f"Default: {settings['port']}, set in {CONFIG_FILE}")
+    p.add_argument("--host", default="127.0.0.1",
+                   help="Address to listen on. Default: 127.0.0.1, this computer only.")
+    p.add_argument("--analyses-dir", default=ANALYSES_DIR,
+                   help=f"Where analyses are saved. Default: {ANALYSES_DIR}")
+    p.add_argument("--cache-dir", default=DEFAULTS.cache_dir,
+                   help=f"Where downloaded data is kept. Default: {DEFAULTS.cache_dir}")
+    p.add_argument("--cache-limit", type=int, default=settings["cache_limit_mb"], metavar="MB",
+                   help=f"Largest size of the cache. Default: {settings['cache_limit_mb']} MB, "
+                        f"set in {CONFIG_FILE}")
+    p.add_argument("--no-browser", action="store_true", help="Don't open the browser.")
+
+    p = sub.add_parser("cache", help="Show or delete the saved downloads")
+    p.add_argument("--cache-dir", default=DEFAULTS.cache_dir,
+                   help=f"Default: {DEFAULTS.cache_dir!r}")
+    p.add_argument("--clear", action="store_true", help="Delete every saved download.")
     return ap
 
 
 def _run(args):
-    options = FetchOptions(scope=args.scope, page_size=args.page_size,
+    options = FetchOptions(page_size=args.page_size,
                            max_workers=args.max_workers,
                            requests_per_minute=args.requests_per_minute, retries=args.retries,
-                           cache_dir=args.cache_dir, refresh=args.refresh)
+                           cache_dir=args.cache_dir, refresh=args.refresh,
+                           cache_limit_mb=args.cache_limit)
     if args.tool == "down":
         result = down.run_down(args.site, args.from_date, args.to_date, args.all_time,
                                args.down_statuses, options)
         if result.weeks:
             render.down_chart(result, args.output)
         if args.csv:
-            render.down_events_csv(result, args.csv)
+            render.save_csv("down", result, args.csv)
         print(render.down_summary(result))
         written = [args.output if result.weeks else None, args.csv]
     elif args.tool == "migration":
         result = migration.run_migration(args.site, args.date, args.months_before,
                                          args.margin_days, args.max_urls, args.check_workers,
                                          args.check_delay, args.include_query, options)
-        render.migration_csv(result, args.output)
+        render.save_csv("migration", result, args.output)
         print(render.migration_summary(result))
         written = [args.output]
     else:
         result = robots.run_robots(args.site, args.from_date, args.to_date, args.max_versions,
                                    options)
-        render.robots_csv(result, args.output)
+        render.save_csv("robots", result, args.output)
         print(render.robots_summary(result))
         written = [args.output]
     if args.json:
@@ -137,11 +167,26 @@ def _run(args):
 
 
 def main():
-    args = _parser().parse_args()
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
+    try:
+        settings = config.load()
+    except ValueError as e:
+        sys.exit(f"wayback-seo: {e}")
+    args = _parser(settings).parse_args()
+    logging.basicConfig(level=logging.DEBUG if getattr(args, "verbose", False) else logging.INFO,
                         format="%(message)s", stream=sys.stderr)
     try:
-        _run(args)
+        if args.tool == "web":
+            from .web import serve
+            serve(args.host, args.port, not args.no_browser, args.analyses_dir, args.cache_dir,
+                  args.cache_limit)
+        elif args.tool == "cache":
+            if args.clear:
+                print(f"Deleted {clear_cache(args.cache_dir) / 1e6:.1f} MB of saved downloads.")
+            else:
+                print(f"Saved downloads in {args.cache_dir}: "
+                      f"{cache_size(args.cache_dir) / 1e6:.1f} MB")
+        else:
+            _run(args)
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
         os._exit(130)  # 128 + SIGINT; don't wait for requests still in flight

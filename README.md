@@ -10,7 +10,7 @@ The data comes from the Internet Archive's CDX API, which lists every capture of
 uv tool install git+https://github.com/LowLevel73/Wayback-SEO
 ```
 
-or `pipx install git+https://github.com/LowLevel73/Wayback-SEO`. Requires Python 3.10+.
+or `pipx install git+https://github.com/LowLevel73/Wayback-SEO`. Requires Python 3.11+.
 
 ## Sub-tools
 
@@ -45,13 +45,34 @@ wayback-seo robots --site www.example.com
 
 Every archived version of robots.txt and the rules each one added or removed, grouped as Googlebot groups them. Serious changes are flagged: robots.txt disappearing, returning a server error or an HTML page, most rules removed at once, and the whole site blocked for all crawlers.
 
+### `web`: the same tools in the browser
+
+```
+wayback-seo web
+```
+
+Opens a page with the three sub-tools. Every finished analysis is saved and listed on the left, to reopen it without new requests.
+
+## Where the tool saves things
+
+Everything is in one folder in your home: `~/.wayback-seo/`, with `analyses/` (analyses saved by the web page) and `cache/` (downloads from the archive). Deleting that folder removes everything the tool saved.
+
+Settings that you want to keep between runs are in `~/.wayback-seo/config.toml`, created on first use with every setting and its default:
+
+```toml
+cache_limit_mb = 100         # largest size of the saved downloads
+requests_per_minute = 55     # the Wayback Machine blocks clients above about 60
+port = 8765                  # port of the web page (wayback-seo web)
+```
+
+An option on the command line overrides the file for that run.
+
 ## Options shared by all sub-tools
 
-- `--site` takes a host (`www.example.com`) or a section (`www.example.com/shop/`); several values are analysed together, e.g. one per language.
-- `--scope domain` includes every subdomain of the host.
+- `--site` takes a host (`www.example.com`), a section (`www.example.com/shop/`) or a whole domain with its subdomains (`*.example.com`); several values are analysed together, e.g. one per language.
 - Dates can be written `2025-12-10` or `20251210`.
 - `--json FILE` saves the full result for further processing.
-- Responses from the archive are saved in `wayback_cache/` and reused by later runs, which then need no download and work offline. The tool says when it uses saved data and on which day it was downloaded; `--refresh` downloads everything again, `--no-cache` neither reads nor saves anything.
+- Downloads from the archive are saved and reused by later runs, which then need no download and work offline. The tool says when it uses saved data and on which day it was downloaded; `--refresh` downloads again, `--no-cache` neither reads nor saves anything. The saved downloads never exceed 100 MB (`--cache-limit`, or `cache_limit_mb` in the settings file): past that, the least recently used are deleted. `wayback-seo cache` shows their size, `wayback-seo cache --clear` deletes them.
 - `--verbose` shows every request.
 
 ## Development

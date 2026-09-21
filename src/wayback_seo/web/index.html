@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wayback SEO</title>
+  <link rel="stylesheet" href="style.css">
+  <script>
+    try { if (localStorage.getItem("theme") === "dark") document.documentElement.dataset.theme = "dark"; } catch {}
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <aside id="history">
+    <h2>Analyses</h2>
+    <p class="hint" id="history-empty">Finished analyses appear here. Click one to open it again without new requests.</p>
+    <ul id="history-list"></ul>
+    <p class="cache">Saved downloads: <span id="cache-size">…</span>
+      <button id="cache-clear" type="button">Clear</button></p>
+  </aside>
+
+  <main>
+    <header>
+      <div>
+        <h1>Wayback SEO</h1>
+        <p class="subtitle">What the Wayback Machine's archive reveals about a website's past.</p>
+      </div>
+      <button id="theme" type="button">Dark</button>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tool="down" class="active">Down detector</button>
+      <button role="tab" data-tool="migration">Migration check</button>
+      <button role="tab" data-tool="robots">robots.txt history</button>
+    </nav>
+
+    <form data-tool="down" class="tool-form">
+      <p class="intro">Weeks in which URLs went from working (200) to an error, and back. A week with far fewer captures than usual can also reveal an outage: an unreachable site is not archived.</p>
+      <label>Sites <textarea name="sites" rows="3" placeholder="www.example.com&#10;www.example.com/shop/&#10;*.example.com" required></textarea></label>
+      <div class="row">
+        <label>From <input type="date" name="date_from"></label>
+        <label>To <input type="date" name="date_to"></label>
+        <label class="check"><input type="checkbox" name="all_time"> Whole history</label>
+      </div>
+      <details>
+        <summary>Advanced options</summary>
+        <div class="row">
+          <label>Statuses that count as down <input name="down_statuses" value="4xx,5xx,-403,-429"></label>
+        </div>
+        <label class="check"><input type="checkbox" name="refresh"> Get fresh data from the Wayback Machine</label>
+      </details>
+      <button type="submit" class="run">Run</button>
+    </form>
+
+    <form data-tool="migration" class="tool-form" hidden>
+      <p class="intro">Collects the URLs that worked before the migration, then checks each one on the live site today. Every old URL should still work or redirect permanently to a working page. This sends requests to the site: use it on sites you are entitled to audit.</p>
+      <label>Sites <textarea name="sites" rows="3" placeholder="www.example.com&#10;www.example.com/old-section/&#10;*.example.com" required></textarea></label>
+      <div class="row">
+        <label>Approximate migration date <input type="date" name="date" required></label>
+      </div>
+      <details>
+        <summary>Advanced options</summary>
+        <div class="row">
+          <label>Months before the date <input type="number" name="months_before" value="6" min="1" step="1"></label>
+          <label>Days skipped before the date <input type="number" name="margin_days" value="14" min="0"></label>
+          <label>Most URLs to check <input type="number" name="max_urls" value="1000" min="1"></label>
+        </div>
+        <label class="check"><input type="checkbox" name="include_query"> Also check URLs with a query string</label>
+        <label class="check"><input type="checkbox" name="refresh"> Get fresh data from the Wayback Machine</label>
+      </details>
+      <button type="submit" class="run">Run</button>
+    </form>
+
+    <form data-tool="robots" class="tool-form" hidden>
+      <p class="intro">Every archived version of robots.txt and the rules each one added or removed, grouped as Googlebot groups them. Serious changes to the file as a whole are highlighted.</p>
+      <label>Sites <textarea name="sites" rows="3" placeholder="www.example.com" required></textarea></label>
+      <details>
+        <summary>Advanced options</summary>
+        <div class="row">
+          <label>From <input type="date" name="date_from"></label>
+          <label>To <input type="date" name="date_to"></label>
+        </div>
+        <label class="check"><input type="checkbox" name="refresh"> Get fresh data from the Wayback Machine</label>
+      </details>
+      <button type="submit" class="run">Run</button>
+    </form>
+
+    <section id="progress" hidden>
+      <h3 id="progress-title">Running…</h3>
+      <pre id="progress-log"></pre>
+    </section>
+
+    <section id="result"></section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

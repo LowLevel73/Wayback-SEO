@@ -11,19 +11,58 @@ from datetime import timedelta
 from .migration import CATEGORIES
 
 
-def write_json(result, path):
-    """Any sub-tool's result as JSON; dates become ISO strings."""
+def to_data(result):
+    """A sub-tool's result as plain JSON-ready data (dates become ISO strings)."""
     data = dataclasses.asdict(result) if dataclasses.is_dataclass(result) else [
         dataclasses.asdict(item) for item in result]
+    return json.loads(json.dumps(data, default=str))
+
+
+def write_json(result, path):
     with open(path, "w") as f:
-        json.dump(data, f, indent=2, default=str)
+        json.dump(to_data(result), f, indent=2)
 
 
-def _write_csv(path, fieldnames, rows):
+def csv_table(tool, data):
+    """(columns, rows) of the CSV for a result in plain-data form, for any sub-tool."""
+    if tool == "down":
+        return ["time", "kind", "status", "url"], [
+            {key: e[key] for key in ("time", "kind", "status", "url")} for e in data["events"]]
+    if tool == "migration":
+        columns = ["url", "category", "flags", "first_status", "final_status", "final_url",
+                   "redirects", "chain", "problem", "last_ok_in_wayback"]
+        return columns, [
+            {"url": c["url"], "category": c["category"], "flags": " ".join(c["flags"]),
+             "first_status": c["hops"][0][1] if c["hops"] else "",
+             "final_status": c["hops"][-1][1] if c["hops"] else "",
+             "final_url": c["hops"][-1][0] if c["hops"] else "",
+             "redirects": max(len(c["hops"]) - 1, 0),
+             "chain": " -> ".join(f"{status} {url}" for url, status in c["hops"]),
+             "problem": c["problem"], "last_ok_in_wayback": c["last_ok_in_wayback"]}
+            for c in data["checks"]]
+    rows = []
+    for history in data:
+        for version in history["versions"]:
+            base = {"robots_txt": history["robots_url"], "date": version["date"],
+                    "capture": version["capture"]}
+            rows += [{**base, "change": "alert", "value": alert} for alert in version["alerts"]]
+            for change in ("added", "removed"):
+                rows += [{**base, "change": change, "user_agent": agent, "directive": directive,
+                          "value": value} for agent, directive, value in version[change]]
+    return ["robots_txt", "date", "change", "user_agent", "directive", "value", "capture"], rows
+
+
+def write_csv(tool, data, file):
+    """Write the CSV for a plain-data result to an open text file."""
+    columns, rows = csv_table(tool, data)
+    writer = csv.DictWriter(file, fieldnames=columns)
+    writer.writeheader()
+    writer.writerows(rows)
+
+
+def save_csv(tool, result, path):
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+        write_csv(tool, to_data(result), f)
 
 
 # --- down -------------------------------------------------------------------
@@ -48,12 +87,6 @@ def down_summary(result):
         lines.append(f"  {_incomplete(result.missing)}: {', '.join(result.missing)}. "
                      f"Rerun to download only those.")
     return "\n".join(lines)
-
-
-def down_events_csv(result, path):
-    _write_csv(path, ["time", "kind", "status", "url"],
-               [{"time": e.time.isoformat(sep=" "), "kind": e.kind, "status": e.status,
-                 "url": e.url} for e in result.events])
 
 
 def down_chart(result, path):
@@ -132,19 +165,6 @@ def migration_summary(result):
     return "\n".join(lines)
 
 
-def migration_csv(result, path):
-    _write_csv(path, ["url", "category", "flags", "first_status", "final_status", "final_url",
-                      "redirects", "chain", "problem", "last_ok_in_wayback"],
-               [{"url": c.url, "category": c.category, "flags": " ".join(c.flags),
-                 "first_status": c.hops[0][1] if c.hops else "",
-                 "final_status": c.hops[-1][1] if c.hops else "",
-                 "final_url": c.hops[-1][0] if c.hops else "",
-                 "redirects": max(len(c.hops) - 1, 0),
-                 "chain": " -> ".join(f"{status} {url}" for url, status in c.hops),
-                 "problem": c.problem, "last_ok_in_wayback": c.last_ok_in_wayback}
-                for c in result.checks])
-
-
 # --- robots -------------------------------------------------------------------
 
 def robots_summary(histories):
@@ -165,18 +185,3 @@ def robots_summary(histories):
             lines.append(f"  {history.failed} versions could not be downloaded")
         lines.append("")
     return "\n".join(lines).rstrip()
-
-
-def robots_csv(histories, path):
-    rows = []
-    for history in histories:
-        for version in history.versions:
-            base = {"robots_txt": history.robots_url, "date": version.date,
-                    "capture": version.capture}
-            rows += [{**base, "change": "alert", "value": alert} for alert in version.alerts]
-            for change, rules in (("added", version.added), ("removed", version.removed)):
-                rows += [{**base, "change": change, "user_agent": agent,
-                          "directive": directive, "value": value}
-                         for agent, directive, value in rules]
-    _write_csv(path, ["robots_txt", "date", "change", "user_agent", "directive", "value",
-                      "capture"], rows)

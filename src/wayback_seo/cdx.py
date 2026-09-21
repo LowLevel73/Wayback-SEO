@@ -14,7 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .util import cdx_date, log, run_parallel
+from .util import CACHE_DIR, cdx_date, log, run_parallel
 
 CDX_BASE = "https://web.archive.org/cdx/search/cdx"
 RAW_CAPTURE = "https://web.archive.org/web/{timestamp}id_/{url}"
@@ -30,9 +30,6 @@ MAX_WAIT = 300                   # cap on any single wait, including Retry-After
 @dataclass
 class FetchOptions:
     """How to query the Wayback Machine; shared by every sub-tool."""
-    scope: str = "host"          # "host": this host only (IA treats www.x and x as one);
-                                 # "domain": also every subdomain. A site with a path
-                                 # (x.com/shop/) always means "URLs under that path".
     page_size: int = 200         # zipnum blocks per page; IA's own default is tiny (~18,000
                                  # pages for one busy site), 200 kept a year of corriere.it
                                  # to 41 requests
@@ -40,10 +37,10 @@ class FetchOptions:
     requests_per_minute: int = 55  # IA staff: "an average of 60/min. Over that and we start
                                    # sending 429s", and ignoring those leads to a firewall block
     retries: int = 5             # extra attempts on 429/5xx, network errors and cut-off bodies
-    cache_dir: str | None = "wayback_cache"  # responses saved here and reused by later runs,
-                                             # so a rerun resumes and can run offline;
-                                             # None = no cache
+    cache_dir: str | None = CACHE_DIR  # responses saved here and reused by later runs,
+                                       # so a rerun resumes and can run offline; None = no cache
     refresh: bool = False        # download again instead of reusing cached responses
+    cache_limit_mb: int = 100    # beyond this, the least recently used responses are deleted
     timeout: int = 120
 
 
@@ -55,10 +52,15 @@ class Capture:
 
 
 class Cache:
-    """Responses on disk, keyed by a hash of the request URL."""
+    """
+    Responses on disk, keyed by a hash of the request URL. A file's
+    modification time is when it was downloaded; its access time is set on
+    every use, so that past the size limit the least recently used go first.
+    """
 
-    def __init__(self, directory):
+    def __init__(self, directory, limit_mb=None):
         self.directory = directory
+        self.limit = limit_mb * 1024 * 1024 if limit_mb else None
 
     def _path(self, url, suffix):
         return os.path.join(self.directory, hashlib.sha1(url.encode()).hexdigest() + suffix)
@@ -71,7 +73,10 @@ class Cache:
         if not os.path.exists(path):
             return None, None
         with open(path, "rb") as f:
-            return f.read(), date.fromtimestamp(os.path.getmtime(path))
+            raw = f.read()
+        downloaded = os.path.getmtime(path)
+        os.utime(path, (time.time(), downloaded))  # used now; download date unchanged
+        return raw, date.fromtimestamp(downloaded)
 
     def put(self, url, suffix, raw):
         if not self.directory:
@@ -82,6 +87,41 @@ class Cache:
         with open(tmp, "wb") as f:
             f.write(raw)
         os.replace(tmp, path)  # atomic, so an interrupted run never leaves half a file
+        if self.limit:
+            self._trim()
+
+    def _trim(self):
+        """Delete the least recently used files until the cache is under 90% of its limit."""
+        files = [entry for entry in os.scandir(self.directory) if entry.is_file()]
+        total = sum(entry.stat().st_size for entry in files)
+        if total <= self.limit:
+            return
+        for entry in sorted(files, key=lambda e: e.stat().st_atime):
+            if total <= self.limit * 0.9:
+                break
+            try:
+                size = entry.stat().st_size
+                os.remove(entry.path)
+                total -= size
+            except OSError:
+                pass  # another thread got there first
+
+
+def cache_size(directory):
+    """Bytes used by the cache folder (0 if it doesn't exist)."""
+    if not directory or not os.path.isdir(directory):
+        return 0
+    return sum(entry.stat().st_size for entry in os.scandir(directory) if entry.is_file())
+
+
+def clear_cache(directory):
+    """Delete every saved response; returns the bytes freed."""
+    freed = cache_size(directory)
+    if freed:
+        for entry in os.scandir(directory):
+            if entry.is_file():
+                os.remove(entry.path)
+    return freed
 
 
 class Pacer:
@@ -186,7 +226,7 @@ def get_rows(url, options, label, parse=_parse_rows):
     options.refresh, else downloaded and cached. cached_on is the date a
     reused response was downloaded, None for a fresh download.
     """
-    cache = Cache(options.cache_dir)
+    cache = Cache(options.cache_dir, options.cache_limit_mb)
     if not options.refresh:
         raw, cached_on = cache.get(url, ".cdx")
         if raw is not None:
@@ -210,7 +250,7 @@ def get_rows(url, options, label, parse=_parse_rows):
 def get_raw_capture(timestamp, url, options):
     """An archived file exactly as captured. A capture never changes, so it is cached forever."""
     wayback_url = RAW_CAPTURE.format(timestamp=timestamp, url=url)
-    cache = Cache(options.cache_dir)
+    cache = Cache(options.cache_dir, options.cache_limit_mb)
     raw, _ = cache.get(wayback_url, ".txt")
     if raw is None:
         raw = download(wayback_url, options, f"capture {timestamp}")
@@ -218,14 +258,23 @@ def get_raw_capture(timestamp, url, options):
     return raw.decode("utf-8", errors="replace")
 
 
-def match_type(site, scope):
-    """CDX matchType: a path after the host means everything under that path."""
+def target(site):
+    """
+    (url, matchType) for a site as the user writes it: "www.x.com" is that host
+    (IA treats www.x.com and x.com as one), "www.x.com/shop/" the URLs under
+    that path, and "*.x.com" the domain with every subdomain.
+    """
     rest = site.split("://", 1)[-1]
-    return "prefix" if "/" in rest and rest.split("/", 1)[1] else scope
+    if rest.startswith("*."):
+        return rest[2:].split("/", 1)[0], "domain"
+    if "/" in rest and rest.split("/", 1)[1]:
+        return site, "prefix"
+    return site, "host"
 
 
 def _query_url(site, date_from, date_to, options, **extra):
-    params = {"url": site, "matchType": match_type(site, options.scope), **extra}
+    url, match = target(site)
+    params = {"url": url, "matchType": match, **extra}
     if date_from:
         params["from"] = date_from
     if date_to:

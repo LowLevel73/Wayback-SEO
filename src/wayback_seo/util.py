@@ -2,10 +2,17 @@
 import concurrent.futures
 import logging
 from datetime import date, datetime
+from pathlib import Path
 
 # Progress and warnings go through this logger. The command line prints INFO and
 # above (DEBUG with --verbose); another front end can attach its own handler.
 log = logging.getLogger("wayback_seo")
+
+# Everything the tool saves lives in one folder in the user's home, on every
+# system, so it is easy to find and to delete.
+HOME = Path.home() / ".wayback-seo"
+CACHE_DIR = str(HOME / "cache")          # saved downloads from the Wayback Machine
+ANALYSES_DIR = str(HOME / "analyses")    # analyses saved by the web interface
 
 
 def parse_date(value):
