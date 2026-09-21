@@ -25,7 +25,7 @@ A chart with two panels on one weekly time axis:
 - **Down and recovery events**: a URL that returned 200 and then an error status (down), or an error and then 200 again (recovery). Many recoveries in the same week are the typical trace of a temporary technical problem that was fixed.
 - **Captures per week**: a site that is completely unreachable leaves no error behind, only a gap, so a sudden dip can reveal an outage too.
 
-Redirects are ignored, and so are 403 and 429, which describe how the archive's crawler was treated rather than what visitors saw. `--down-statuses` changes which statuses count as down.
+Redirects are ignored, and so are 403 and 429, which describe how the archive's crawler was treated rather than what visitors saw. `--down-statuses` changes which statuses count as down. The chart is saved as `wayback_down.png`; `--csv` also lists every event.
 
 ### `migration`: old URLs checked on the live site
 
@@ -49,7 +49,16 @@ Every archived version of robots.txt and the rules each one added or removed, gr
 
 - `--site` takes a host (`www.example.com`) or a section (`www.example.com/shop/`); several values are analysed together, e.g. one per language.
 - `--scope domain` includes every subdomain of the host.
-- Responses from the archive are cached in `wayback_cache/`, so a rerun only downloads what is missing and can run offline.
+- Dates can be written `2025-12-10` or `20251210`.
+- `--json FILE` saves the full result for further processing.
+- Responses from the archive are saved in `wayback_cache/` and reused by later runs, which then need no download and work offline. The tool says when it uses saved data and on which day it was downloaded; `--refresh` downloads everything again, `--no-cache` neither reads nor saves anything.
+- `--verbose` shows every request.
+
+## Development
+
+```
+uv run pytest
+```
 
 ## Limits
 

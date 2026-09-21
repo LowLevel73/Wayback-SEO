@@ -8,6 +8,9 @@ license = "MIT"
 authors = [{ name = "Enrico Altavilla" }]
 dependencies = ["matplotlib>=3.7"]
 
+[dependency-groups]
+dev = ["pytest>=8"]
+
 [project.urls]
 Homepage = "https://github.com/LowLevel73/Wayback-SEO"
 
