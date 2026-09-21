@@ -1,4 +1,4 @@
-"""Wayback SEO: what the Wayback Machine's archive reveals about a website's past."""
+"""Wayback SEO uses the Wayback Machine to find problems in a website's past."""
 from .cdx import FetchOptions
 from .down import run_down
 from .migration import run_migration

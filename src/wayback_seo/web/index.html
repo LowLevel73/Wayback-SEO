@@ -23,7 +23,7 @@
     <header>
       <div>
         <h1>Wayback SEO</h1>
-        <p class="subtitle">What the Wayback Machine's archive reveals about a website's past.</p>
+        <p class="subtitle">Wayback SEO uses the Wayback Machine to find problems in a website's past.</p>
       </div>
       <button id="theme" type="button">Dark</button>
     </header>
@@ -35,7 +35,7 @@
     </nav>
 
     <form data-tool="down" class="tool-form">
-      <p class="intro">Weeks in which URLs went from working (200) to an error, and back. A week with far fewer captures than usual can also reveal an outage: an unreachable site is not archived.</p>
+      <p class="intro">The down detector shows the weeks in which URLs stopped working (from 200 to an error) and started working again. When a site is completely unreachable, the archive saves nothing, so a week with far fewer captures than usual can also mean an outage.</p>
       <label>Sites <textarea name="sites" rows="3" placeholder="www.example.com&#10;www.example.com/shop/&#10;*.example.com" required></textarea></label>
       <div class="row">
         <label>From <input type="date" name="date_from"></label>
@@ -53,7 +53,7 @@
     </form>
 
     <form data-tool="migration" class="tool-form" hidden>
-      <p class="intro">Collects the URLs that worked before the migration, then checks each one on the live site today. Every old URL should still work or redirect permanently to a working page. This sends requests to the site: use it on sites you are entitled to audit.</p>
+      <p class="intro">The migration check collects the URLs that worked before the migration and checks each one on the live site today. After a good migration, every old URL still works or redirects permanently to a working page. This tool sends requests to the site, so use it only on sites you are allowed to audit.</p>
       <label>Sites <textarea name="sites" rows="3" placeholder="www.example.com&#10;www.example.com/old-section/&#10;*.example.com" required></textarea></label>
       <div class="row">
         <label>Approximate migration date <input type="date" name="date" required></label>
@@ -72,7 +72,7 @@
     </form>
 
     <form data-tool="robots" class="tool-form" hidden>
-      <p class="intro">Every archived version of robots.txt and the rules each one added or removed, grouped as Googlebot groups them. Serious changes to the file as a whole are highlighted.</p>
+      <p class="intro">The robots.txt history shows every version of robots.txt that the archive saved, and which rules each version added or removed. The tool groups the rules the same way Googlebot does, and it highlights serious changes.</p>
       <label>Sites <textarea name="sites" rows="3" placeholder="www.example.com" required></textarea></label>
       <details>
         <summary>Advanced options</summary>
