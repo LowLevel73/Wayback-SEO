@@ -216,7 +216,7 @@ def _fetch_cdx_page(domain, page, date_from=None, date_to=None, timeout=120,
         "url": domain,
         "matchType": scope,
         "output": "json",
-        "fl": "timestamp,original,statuscode,digest",
+        "fl": "timestamp,original,statuscode",  # collapse works without digest in fl
         "collapse": "digest",
         "filter": "mimetype:text/html",
     }
@@ -321,7 +321,7 @@ def load_cdx_file(path):
 
 
 def rows_to_records(rows):
-    """CDX JSON: first row is header, rest are [timestamp, original, statuscode, digest]."""
+    """CDX JSON: first row is header, rest are [timestamp, original, statuscode]."""
     if not rows:
         return []
     header = rows[0]
@@ -402,46 +402,64 @@ def iso_week_start(ts):
     return ts.date() - timedelta(days=ts.weekday())
 
 
-def aggregate_weekly(events, url_filter=None):
+def aggregate_weekly(events, records=(), url_filter=None):
     """
-    Bucket events by ISO week -> {'down': n, 'recovery': n}.
+    Bucket events and captures by ISO week -> {'down': n, 'recovery': n,
+    'captures': n}. A week with far fewer captures than usual can reveal an
+    outage that left no error behind: an unreachable site is not archived.
     url_filter: optional callable(url) -> bool, to narrow to specific URL(s)
     later without touching the rest of the pipeline.
     """
     if url_filter is not None:
         events = [e for e in events if url_filter(e[0])]
+        records = [r for r in records if url_filter(r[0])]
 
-    weekly = defaultdict(lambda: {"down": 0, "recovery": 0})
+    weekly = defaultdict(lambda: {"down": 0, "recovery": 0, "captures": 0})
     for url, ts, kind, status in events:
-        wk = iso_week_start(ts)
-        weekly[wk][kind] += 1
+        weekly[iso_week_start(ts)][kind] += 1
+    for url, ts, status in records:
+        weekly[iso_week_start(ts)]["captures"] += 1
     return dict(sorted(weekly.items()))
 
 
 def plot_timeline(weekly, output_path, domain, note=None, period=None):
+    """Two panels on one time axis: down/recovery events, then captures per week."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
+    from matplotlib.ticker import MaxNLocator
 
     weeks = list(weekly.keys())
     downs = [-weekly[w]["down"] for w in weeks]       # negative = below axis
     recoveries = [weekly[w]["recovery"] for w in weeks]  # positive = above axis
+    captures = [weekly[w]["captures"] for w in weeks]
 
-    fig, ax = plt.subplots(figsize=(12, 5))
+    fig, (ax, ax_cap) = plt.subplots(2, 1, figsize=(12, 8), sharex=True,
+                                     gridspec_kw={"height_ratios": [3, 2]})
     ax.bar(weeks, downs, width=5, color="#c0392b", label="Down events (200→down status)")
     ax.bar(weeks, recoveries, width=5, color="#27ae60", label="Recovery events (down status→200)")
     ax.axhline(0, color="black", linewidth=0.8)
-    if period:
-        ax.set_xlim(*period)  # whole analysed period, so quiet stretches stay visible
+    if not any(downs) and not any(recoveries):
+        ax.text(0.5, 0.5, "No down or recovery events in this period", transform=ax.transAxes,
+                ha="center", va="center", color="#6b6b69")
     title = f"Wayback Machine crawl-observed availability transitions — {domain}"
     ax.set_title(f"{title}\n{note}" if note else title)
     ax.set_ylabel("Events per week")
-    locator = mdates.AutoDateLocator(minticks=8, maxticks=20)
-    ax.xaxis.set_major_locator(locator)
-    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
-    plt.setp(ax.xaxis.get_majorticklabels(), rotation=90, ha="center")
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax.legend(loc="upper left")
+
+    ax_cap.bar(weeks, captures, width=5, color="#2a78d6")
+    ax_cap.set_title("Captures per week (an unreachable site is not archived, so outages "
+                     "can show up as dips)", fontsize=10, loc="left")
+    ax_cap.set_ylabel("Captures per week")
+
+    if period:
+        ax.set_xlim(*period)  # whole analysed period, so quiet stretches stay visible
+    locator = mdates.AutoDateLocator(minticks=8, maxticks=20)
+    ax_cap.xaxis.set_major_locator(locator)
+    ax_cap.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+    plt.setp(ax_cap.xaxis.get_majorticklabels(), rotation=90, ha="center")
     fig.tight_layout()
     fig.savefig(output_path, dpi=150)
     print(f"Saved chart to {output_path}")
@@ -499,12 +517,11 @@ def run(domain=DEFAULT_DOMAIN, input_path=DEFAULT_INPUT_PATH, date_from=DEFAULT_
     print(f"{len(records)} records with parsable status codes", file=sys.stderr)
     events = detect_events(records, parse_statuses(down_statuses))
     print(f"{len(events)} transition events detected", file=sys.stderr)
-    weekly = aggregate_weekly(events)  # url_filter=lambda u: u == "..." to narrow later
+    weekly = aggregate_weekly(events, records)  # url_filter=lambda u: u == "..." to narrow later
 
     if not weekly:
-        print("No transition events found — nothing to plot. This usually means either "
-              "the domain genuinely had no status-code flips in this window, or the CDX "
-              "query returned no data (check the request/response logs above). "
+        print("No captures found — nothing to plot. The CDX query returned no data for "
+              "this window (check the request/response logs above). "
               "Skipping chart generation.", file=sys.stderr)
         return weekly
 
