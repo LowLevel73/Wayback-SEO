@@ -184,7 +184,9 @@ def robots_summary(histories):
                      f"({history.archived} archived versions)")
         for i, version in enumerate(history.versions):
             if i == 0:
-                lines.append(f"{version.date}  first archived version: {version.rules} rules")
+                first = (f"oldest of the latest {history.archived - history.skipped} versions"
+                         if history.skipped else "first archived version")
+                lines.append(f"{version.date}  {first}: {version.rules} rules")
             else:
                 lines.append(str(version.date))
             lines += [f"            ! {text}" for text in version.warnings]

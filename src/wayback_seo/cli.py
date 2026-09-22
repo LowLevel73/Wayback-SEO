@@ -47,7 +47,7 @@ def _common_options(settings):
                         f"Default: {DEFAULTS.page_size}")
     p.add_argument("--requests-per-minute", type=int, default=settings["requests_per_minute"],
                    help=f"Most requests per minute to the Wayback Machine, which blocks "
-                        f"clients that exceed about 60. Default: "
+                        f"clients that exceed 30. Default: "
                         f"{settings['requests_per_minute']}, set in {CONFIG_FILE}")
     p.add_argument("--retries", type=int, default=DEFAULTS.retries,
                    help=f"Extra attempts per request after errors. Default: {DEFAULTS.retries}")
@@ -123,6 +123,9 @@ def _parser(settings):
     p.add_argument("--cache-limit", type=int, default=settings["cache_limit_mb"], metavar="MB",
                    help=f"Largest size of the cache. Default: {settings['cache_limit_mb']} MB, "
                         f"set in {CONFIG_FILE}")
+    p.add_argument("--requests-per-minute", type=int, default=settings["requests_per_minute"],
+                   help=f"Most requests per minute to the Wayback Machine. Default: "
+                        f"{settings['requests_per_minute']}, set in {CONFIG_FILE}")
     p.add_argument("--no-browser", action="store_true", help="Don't open the browser.")
 
     p = sub.add_parser("cache", help="Show or delete the saved downloads")
@@ -178,7 +181,7 @@ def main():
         if args.tool == "web":
             from .web import serve
             serve(args.host, args.port, not args.no_browser, args.analyses_dir, args.cache_dir,
-                  args.cache_limit)
+                  args.cache_limit, args.requests_per_minute)
         elif args.tool == "cache":
             if args.clear:
                 print(f"Deleted {clear_cache(args.cache_dir) / 1e6:.1f} MB of saved downloads.")

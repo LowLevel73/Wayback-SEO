@@ -107,6 +107,18 @@ def collect_old_urls(captures, include_query=False):
     return old
 
 
+def _location(response):
+    """
+    The Location header. http.client decodes headers as Latin-1, but servers
+    often send raw UTF-8 ("/città"), so decode those bytes again as UTF-8.
+    """
+    location = response.getheader("Location")
+    try:
+        return location.encode("latin-1").decode("utf-8") if location else location
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return location
+
+
 def _request(url, read_body=False):
     """One GET without following redirects; returns (status, Location header, body)."""
     parts = urlsplit(url)
@@ -120,7 +132,7 @@ def _request(url, read_body=False):
                                                    "Accept": "text/html"})
         response = connection.getresponse()
         body = response.read(ROBOTS_MAX_BYTES).decode("utf-8", "replace") if read_body else ""
-        return response.status, response.getheader("Location"), body
+        return response.status, _location(response), body
     finally:
         connection.close()
 

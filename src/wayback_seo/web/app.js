@@ -350,7 +350,7 @@ function renderRobots(record) {
       <div class="stats">${stat(history.archived, "archived versions")}${stat(history.versions.length - 1, "changes")}${stat(count(warnings), "warnings")}${stat(count(notices), "notices")}</div>
       ${history.versions.map((v, i) => `
         <div class="version ${warnings(v).length ? "has-warning" : notices(v).length ? "has-notice" : ""}">
-          <div class="version-date">${esc(v.date)}${i === 0 ? ` · first archived version, ${v.rules} rules` : ""}
+          <div class="version-date">${esc(v.date)}${i === 0 ? ` · ${history.skipped ? `oldest of the latest ${history.archived - history.skipped} versions` : "first archived version"}, ${v.rules} rules` : ""}
             <a href="${esc(v.capture)}" target="_blank" rel="noopener">archived file</a></div>
           ${warnings(v).map((a) => `<div class="warning">${esc(a)}</div>`).join("")}
           ${notices(v).map((a) => `<div class="notice">${esc(a)}</div>`).join("")}

@@ -45,3 +45,10 @@ def test_is_allowed_as_google_decides():
              "/doc.pdf?x=1": True, "/list?sort=a": False, "/tie": True, "/robots.txt": True}
     for path, allowed in cases.items():
         assert is_allowed(rules, path) == allowed, path
+
+
+def test_is_allowed_matches_accented_rules_and_encoded_urls():
+    rules = [("Disallow", "/città")]
+    assert not is_allowed(rules, "/citt%c3%a0/x")
+    assert not is_allowed(rules, "/città")
+    assert is_allowed(rules, "/citta")

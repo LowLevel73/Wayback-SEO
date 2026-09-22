@@ -20,7 +20,7 @@ DOWN_DATA = {"sites": ["www.x.it"], "start": "2026-01-01", "end": "2026-01-31",
 @pytest.fixture
 def server(tmp_path):
     store = Store(tmp_path / "analyses")
-    runner = Runner(store, str(tmp_path / "cache"), 100)
+    runner = Runner(store, str(tmp_path / "cache"), 100, 30)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(store, runner))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield httpd.server_address[1], store, tmp_path
@@ -88,3 +88,11 @@ def test_bad_requests_are_refused_and_bad_forms_reported(server):
             break
         time.sleep(0.1)
     assert state["error"] == "enter at least one site"
+
+
+def test_an_incomplete_analysis_file_does_not_hide_the_others(server):
+    port, store, tmp_path = server
+    good = store.save("down", {"sites": "www.x.it"}, DOWN_DATA)
+    (tmp_path / "analyses" / "broken.json").write_text('{"id": "broken"}', encoding="utf-8")
+    status, items = get_json(port, "/api/analyses")
+    assert status == 200 and [item["id"] for item in items] == [good]

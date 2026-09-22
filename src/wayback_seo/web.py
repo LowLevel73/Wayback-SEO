@@ -33,10 +33,11 @@ def _sites(params):
     return sites
 
 
-def run_tool(tool, params, cache_dir, cache_limit_mb):
+def run_tool(tool, params, cache_dir, cache_limit_mb,
+             requests_per_minute=FetchOptions.requests_per_minute):
     """Run one sub-tool from form parameters; returns its result as JSON-ready data."""
     options = FetchOptions(cache_dir=cache_dir, refresh=bool(params.get("refresh")),
-                           cache_limit_mb=cache_limit_mb)
+                           cache_limit_mb=cache_limit_mb, requests_per_minute=requests_per_minute)
     sites = _sites(params)
     blank = lambda key: params.get(key) or None
     if tool == "down":
@@ -85,9 +86,9 @@ class Store:
         for path in sorted(self.directory.glob("*.json"), reverse=True):
             try:
                 record = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            items.append({key: record[key] for key in ("id", "tool", "created", "params")})
+                items.append({key: record[key] for key in ("id", "tool", "created", "params")})
+            except (OSError, ValueError, KeyError, TypeError):
+                continue  # unreadable or incomplete: skip it, keep the others
         return items
 
     def get(self, analysis_id):
@@ -125,8 +126,9 @@ class JobLog(logging.Handler):
 class Runner:
     """Runs queued jobs one at a time, so requests to the Wayback Machine stay paced."""
 
-    def __init__(self, store, cache_dir, cache_limit_mb):
+    def __init__(self, store, cache_dir, cache_limit_mb, requests_per_minute):
         self.store, self.cache_dir, self.cache_limit_mb = store, cache_dir, cache_limit_mb
+        self.requests_per_minute = requests_per_minute
         self.jobs = {}
         self.queue = queue.Queue()
         self.handler = JobLog()
@@ -146,7 +148,8 @@ class Runner:
             job.status = "running"
             self.handler.job = job
             try:
-                _, data = run_tool(job.tool, job.params, self.cache_dir, self.cache_limit_mb)
+                _, data = run_tool(job.tool, job.params, self.cache_dir, self.cache_limit_mb,
+                                   self.requests_per_minute)
                 job.analysis_id = self.store.save(job.tool, job.params, data)
                 job.status = "done"
             except Exception as e:  # shown to the user; the server keeps going
@@ -241,10 +244,11 @@ def make_handler(store, runner):
 
 
 def serve(host="127.0.0.1", port=8765, open_browser=True, analyses_dir=ANALYSES_DIR,
-          cache_dir=CACHE_DIR, cache_limit_mb=FetchOptions.cache_limit_mb):
+          cache_dir=CACHE_DIR, cache_limit_mb=FetchOptions.cache_limit_mb,
+          requests_per_minute=FetchOptions.requests_per_minute):
     """Start the web interface; blocks until interrupted."""
     store = Store(analyses_dir)
-    runner = Runner(store, cache_dir, cache_limit_mb)
+    runner = Runner(store, cache_dir, cache_limit_mb, requests_per_minute)
     server = ThreadingHTTPServer((host, port), make_handler(store, runner))
     url = f"http://{'localhost' if host in ('127.0.0.1', '0.0.0.0') else host}:{port}/"
     print(f"Wayback SEO is running at {url} (Ctrl-C to stop)")

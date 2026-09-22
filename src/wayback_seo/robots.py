@@ -30,6 +30,7 @@ class RobotsHistory:
     robots_url: str
     versions: list = field(default_factory=list)  # oldest first; only versions that changed
     archived: int = 0            # distinct versions found in the archive
+    skipped: int = 0             # oldest versions left out by max_versions
     failed: int = 0              # versions that could not be downloaded
 
 
@@ -80,6 +81,7 @@ def history(site, date_from=None, date_to=None, max_versions=DEFAULT_MAX_VERSION
     log.info("%s: %d distinct versions archived", result.robots_url, len(versions))
     if len(versions) > max_versions:
         log.warning("using only the latest %d versions", max_versions)
+        result.skipped = len(versions) - max_versions
         versions = versions[-max_versions:]
     texts, failed = run_parallel(
         {ts: (lambda ts=ts, url=url: get_raw_capture(ts, url, options))

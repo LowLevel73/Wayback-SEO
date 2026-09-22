@@ -11,6 +11,7 @@ Google. Sitemap lines are independent of groups.
 
 import functools
 import re
+from urllib.parse import quote
 
 GROUP_KEYS = {"user-agent", "allow", "disallow"}
 
@@ -75,9 +76,23 @@ def googlebot_rules(groups):
     return merged.get("googlebot", merged.get("*", []))
 
 
+# Characters kept as they are; everything else, such as "à", is percent-encoded.
+_SAFE = "/?=&*$%:@!,;+-._~'()[]"
+
+
+def _encoded(path):
+    """
+    A path in one canonical form, as Google compares them: non-ASCII characters
+    percent-encoded as UTF-8, and hex digits upper case. So "/città" in a rule
+    matches the URL "/citt%c3%a0".
+    """
+    return re.sub(r"%[0-9a-fA-F]{2}", lambda m: m[0].upper(), quote(path, safe=_SAFE))
+
+
 @functools.cache
 def _pattern(path):
     """A rule path as a regex: '*' matches any characters, a final '$' ends the URL."""
+    path = _encoded(path)
     end = path.endswith("$")
     body = "".join(".*" if c == "*" else re.escape(c) for c in (path[:-1] if end else path))
     return re.compile(body + ("$" if end else ""))
@@ -91,9 +106,10 @@ def is_allowed(rules, path):
     """
     if path == "/robots.txt":
         return True
+    path = _encoded(path)
     best = None  # (length, allowed)
     for directive, rule in rules:
         if _pattern(rule).match(path):
-            candidate = (len(rule), directive == "Allow")
+            candidate = (len(_encoded(rule)), directive == "Allow")
             best = max(best, candidate) if best else candidate
     return best is None or best[1]
