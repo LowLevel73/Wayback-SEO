@@ -46,11 +46,15 @@ def csv_table(tool, data):
         for version in history["versions"]:
             base = {"robots_txt": history["robots_url"], "date": version["date"],
                     "capture": version["capture"]}
-            rows += [{**base, "change": "alert", "value": alert} for alert in version["alerts"]]
+            # analyses saved before notices existed have only "alerts", all warnings
+            for kind, key in (("warning", "warnings"), ("warning", "alerts"),
+                              ("notice", "notices")):
+                rows += [{**base, "type": kind, "change": text} for text in version.get(key, [])]
             for change in ("added", "removed"):
                 rows += [{**base, "change": change, "user_agent": agent, "directive": directive,
                           "value": value} for agent, directive, value in version[change]]
-    return ["robots_txt", "date", "change", "user_agent", "directive", "value", "capture"], rows
+    return ["robots_txt", "date", "type", "change", "user_agent", "directive", "value",
+            "capture"], rows
 
 
 def write_csv(tool, data, file):
@@ -183,7 +187,8 @@ def robots_summary(histories):
                 lines.append(f"{version.date}  first archived version: {version.rules} rules")
             else:
                 lines.append(str(version.date))
-            lines += [f"            ! {alert}" for alert in version.alerts]
+            lines += [f"            ! {text}" for text in version.warnings]
+            lines += [f"            · {text}" for text in version.notices]
             for sign, rules in (("+", version.added), ("-", version.removed)):
                 lines += [f"            {sign} [{agent}] {directive}: {value}"
                           for agent, directive, value in rules]

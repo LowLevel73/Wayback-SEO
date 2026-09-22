@@ -73,13 +73,19 @@ The tool sends its requests to the analysed site, two at a time, with the User-A
 wayback-seo robots --site www.example.com
 ```
 
-Lists every version of robots.txt in the archive and the rules each one added or removed. Rules are grouped by user-agent as Googlebot groups them. The tool raises an alert when robots.txt:
+Lists every version of robots.txt in the archive and the rules each one added or removed. Rules are grouped by user-agent as Googlebot groups them.
 
-- returns 404 or 410, which allows crawling of every URL;
-- returns a 5xx status, which makes Google pause crawling;
-- returns an HTML page;
+The tool raises a warning when robots.txt:
+
+- returns a 5xx or 429 status, which makes Google temporarily stop crawling;
 - loses at least half of its rules at once;
-- blocks the whole site for all crawlers (`User-agent: *` with only `Disallow: /`), or lifts such a block.
+- blocks the whole site for all crawlers (`User-agent: *` with only `Disallow: /`).
+
+It raises a notice when robots.txt:
+
+- returns 404, 410 or another status that allows crawling of every URL;
+- returns an HTML page;
+- lifts a whole-site block.
 
 The results are saved in `robots_history.csv`.
 

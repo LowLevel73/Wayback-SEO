@@ -18,8 +18,9 @@ def test_migration_csv_row():
 def test_robots_csv_rows():
     data = [{"robots_url": "x.it/robots.txt", "archived": 2, "failed": 0, "versions": [
         {"date": "2017-01-23", "capture": "cap", "status": 200, "rules": 1,
-         "alerts": ["whole site blocked"], "added": [["*", "Disallow", "/"]], "removed": []}]}]
+         "warnings": ["whole site blocked"], "notices": [],
+         "added": [["*", "Disallow", "/"]], "removed": []}]}]
     _, rows = csv_table("robots", data)
-    assert [(r["change"], r.get("value")) for r in rows] == [
-        ("alert", "whole site blocked"), ("added", "/")]
+    assert [(r.get("type"), r["change"], r.get("value")) for r in rows] == [
+        ("warning", "whole site blocked", None), (None, "added", "/")]
     assert rows[1]["user_agent"] == "*" and rows[1]["directive"] == "Disallow"

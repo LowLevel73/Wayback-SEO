@@ -182,7 +182,7 @@ class LiveRobots:
             if origin not in self.rules:
                 rules, problem = _fetch_robots(origin + "/robots.txt", self.delay)
                 if problem:
-                    log.warning("%s/robots.txt %s: Google does not crawl any URL of this host",
+                    log.warning("%s/robots.txt %s: Google temporarily stops crawling this host",
                                 origin, problem)
                 self.rules[origin] = rules
         path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")

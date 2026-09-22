@@ -1,7 +1,7 @@
 """
 robots.txt history: every distinct version of a site's robots.txt that the
 Wayback Machine archived, the rules each version added or removed, and
-alerts for changes to the file as a whole.
+warnings and notices for changes to the file as a whole.
 """
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -19,7 +19,8 @@ class Version:
     capture: str                 # Wayback URL of the archived file
     status: int
     rules: int                   # number of rules in this version
-    alerts: list = field(default_factory=list)   # serious changes to the file as a whole
+    warnings: list = field(default_factory=list)  # serious changes to the file as a whole
+    notices: list = field(default_factory=list)   # changes worth knowing, less serious
     added: list = field(default_factory=list)    # (user-agent, directive, value)
     removed: list = field(default_factory=list)
 
@@ -53,15 +54,15 @@ def parse_rules(text):
 
 
 def _problem(text, status):
-    """Why a version is not a usable robots.txt, or None."""
+    """(level, message) when a version is not a usable robots.txt, or None."""
+    if status == 429 or 500 <= status < 600:
+        return "warning", f"HTTP {status}: Google temporarily stops crawling the site"
     if status in (404, 410):
-        return f"HTTP {status}: no robots.txt, so crawlers may access everything"
-    if 500 <= status < 600:
-        return f"HTTP {status}: robots.txt unavailable, which makes Google pause crawling"
+        return "notice", f"HTTP {status}: no robots.txt, so crawlers may access everything"
     if status != 200:
-        return f"HTTP {status}: no robots.txt served"
+        return "notice", f"HTTP {status}: no robots.txt served"
     if "<html" in text[:1000].lower():
-        return "an HTML page instead of a robots.txt"
+        return "notice", "an HTML page instead of a robots.txt"
     return None
 
 
@@ -85,31 +86,38 @@ def history(site, date_from=None, date_to=None, max_versions=DEFAULT_MAX_VERSION
          for ts, url, status in versions if status == "200"}, options.max_workers)
     result.failed = len(failed)
 
-    previous, previous_blocks = None, False
+    previous, previous_blocks, previous_problem = None, False, None
     for ts, url, status in versions:
         if ts in failed:
             continue
         status = int(status)
         text = texts.get(ts, "")
         problem = _problem(text, status)
-        rules, blocks_all = (set(), False) if problem else parse_rules(text)
+        if not problem:
+            rules, blocks_all = parse_rules(text)
+        elif problem[0] == "warning":  # 5xx: Google keeps using the rules it had
+            rules, blocks_all = previous or set(), previous_blocks
+        else:  # treated as a 404: no rules
+            rules, blocks_all = set(), False
         version = Version(datetime.strptime(ts[:8], "%Y%m%d").date(),
                           RAW_CAPTURE.format(timestamp=ts, url=url), status, len(rules))
-        if problem:
-            version.alerts.append(problem)
+        if problem and problem != previous_problem:  # a repeated 404 is not a change
+            level, message = problem
+            (version.warnings if level == "warning" else version.notices).append(message)
         if blocks_all and not previous_blocks:
-            version.alerts.append("'*' group is only 'Disallow: /': the whole site is "
-                                  "blocked for all crawlers")
+            version.warnings.append("'*' group is only 'Disallow: /': the whole site is "
+                                    "blocked for all crawlers")
         if previous_blocks and not blocks_all:
-            version.alerts.append("the whole-site block for all crawlers was lifted")
+            version.notices.append("the whole-site block for all crawlers was lifted")
         if previous is not None:
             version.added, version.removed = sorted(rules - previous), sorted(previous - rules)
             dropped = len(version.removed)
-            if not problem and len(previous) >= 5 and dropped >= len(previous) / 2:
-                version.alerts.append(f"{dropped} of {len(previous)} rules removed at once")
-        if previous is None or version.alerts or version.added or version.removed:
+            if len(previous) >= 5 and dropped >= len(previous) / 2:
+                version.warnings.append(f"{dropped} of {len(previous)} rules removed at once")
+        if (previous is None or version.warnings or version.notices or version.added
+                or version.removed):
             result.versions.append(version)
-        previous, previous_blocks = rules, blocks_all
+        previous, previous_blocks, previous_problem = rules, blocks_all, problem
     return result
 
 

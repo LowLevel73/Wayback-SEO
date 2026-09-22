@@ -8,6 +8,8 @@
   --down: #c0392b;
   --recovery: #27ae60;
   --alert-bg: #fdecea;
+  --notice-bg: #fff3c4;
+  --notice: #b58900;
   --ok-bg: #eaf6ee;
   --code-bg: #efefec;
 }
@@ -21,6 +23,8 @@
   --down: #e0604f;
   --recovery: #3fbf74;
   --alert-bg: #3a2220;
+  --notice-bg: #3a3218;
+  --notice: #d9ad2b;
   --ok-bg: #1e3326;
   --code-bg: #2b2b29;
 }
@@ -150,10 +154,15 @@ td.url { overflow-wrap: anywhere; }
 .category p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
 
 .version { border-left: 3px solid var(--border); padding: 4px 0 10px 14px; margin-left: 4px; }
-.version.has-alert { border-left-color: var(--down); }
+.version.has-warning { border-left-color: var(--down); }
+.version.has-notice { border-left-color: var(--notice); }
 .version-date { font-weight: 600; }
 .version-date a { font-weight: 400; font-size: 13px; color: var(--accent); margin-left: 8px; }
-.alert { background: var(--alert-bg); color: var(--down); border-radius: 6px; padding: 5px 10px; margin: 5px 0; font-size: 14px; }
+.warning, .notice { border-radius: 6px; padding: 5px 10px; margin: 5px 0; font-size: 14px; }
+.warning { background: var(--alert-bg); color: var(--down); }
+.notice { background: var(--notice-bg); color: var(--ink); }
+details.rules { margin: 5px 0; }
+details.rules summary { font-size: 14px; }
 .rule { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 13px; }
 .rule.added { color: var(--recovery); }
 .rule.removed { color: var(--down); }

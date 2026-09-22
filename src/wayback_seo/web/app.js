@@ -19,6 +19,7 @@ const CATEGORY_MEANING = {
   "still works": "same URL still answers 200",
 };
 
+const COLLAPSE_OVER = 10;  // robots.txt versions with more rule changes start collapsed
 const ROBOTS_FILTER = "robots.txt";  // the box of blocked URLs, which filters like a category
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -330,16 +331,25 @@ function renderMigration(record) {
 function renderRobots(record) {
   const rule = ([agent, directive, value], kind) =>
     `<div class="rule ${kind}">${kind === "added" ? "+" : "−"} [${esc(agent)}] ${esc(directive)}: ${esc(value)}</div>`;
+  // analyses saved before notices existed have only "alerts", all warnings
+  const warnings = (v) => v.warnings || v.alerts || [];
+  const notices = (v) => v.notices || [];
+  const rules = (v) => {
+    const lines = v.added.map((r) => rule(r, "added")).join("") + v.removed.map((r) => rule(r, "removed")).join("");
+    const n = v.added.length + v.removed.length;
+    return n > COLLAPSE_OVER ? `<details class="rules"><summary>${n} rule changes</summary>${lines}</details>` : lines;
+  };
   $("#result").innerHTML = header(record, "robots.txt history") + record.result.map((history) => {
-    const alerts = history.versions.reduce((n, v) => n + v.alerts.length, 0);
+    const count = (list) => history.versions.reduce((n, v) => n + list(v).length, 0);
     return `<h3>${esc(history.robots_url)}</h3>
-      <div class="stats">${stat(history.archived, "archived versions")}${stat(history.versions.length - 1, "changes")}${stat(alerts, "alerts")}</div>
+      <div class="stats">${stat(history.archived, "archived versions")}${stat(history.versions.length - 1, "changes")}${stat(count(warnings), "warnings")}${stat(count(notices), "notices")}</div>
       ${history.versions.map((v, i) => `
-        <div class="version ${v.alerts.length ? "has-alert" : ""}">
+        <div class="version ${warnings(v).length ? "has-warning" : notices(v).length ? "has-notice" : ""}">
           <div class="version-date">${esc(v.date)}${i === 0 ? ` · first archived version, ${v.rules} rules` : ""}
             <a href="${esc(v.capture)}" target="_blank" rel="noopener">archived file</a></div>
-          ${v.alerts.map((a) => `<div class="alert">${esc(a)}</div>`).join("")}
-          ${i === 0 ? "" : v.added.map((r) => rule(r, "added")).join("") + v.removed.map((r) => rule(r, "removed")).join("")}
+          ${warnings(v).map((a) => `<div class="warning">${esc(a)}</div>`).join("")}
+          ${notices(v).map((a) => `<div class="notice">${esc(a)}</div>`).join("")}
+          ${i === 0 ? "" : rules(v)}
         </div>`).join("")}
       ${history.failed ? `<p class="error">${history.failed} versions could not be downloaded.</p>` : ""}`;
   }).join("");
