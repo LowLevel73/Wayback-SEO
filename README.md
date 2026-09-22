@@ -40,6 +40,12 @@ The page opens in your browser. It has a tab for each of the three tools, which 
 
 The page runs one analysis at a time.
 
+![The down detector: down and recovery events per week, and captures per week](docs/down.png)
+
+![The migration check: old URLs sorted into categories, with their redirects](docs/migration.png)
+
+![The robots.txt history: each version's rule changes, with warnings and notices](docs/robots.png)
+
 ## Command line
 
 ### Down detector
