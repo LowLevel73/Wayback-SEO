@@ -142,3 +142,9 @@ uv run pytest
 - The archive's API is slow for very large sites.
 - The tool reads robots.txt as Google does. Other search engines can interpret some rules differently.
 - Antivirus software that inspects HTTPS traffic can refuse the tool's connections to the Wayback Machine.
+
+## Credits
+
+Wayback SEO relies on the [Wayback Machine](https://web.archive.org/) of the Internet Archive, which has been preserving the web since 1996 and makes its archive available to everyone. Thanks to the people who build and run it.
+
+Wayback SEO was developed with the help of Claude Code, an AI coding assistant made by Anthropic.
