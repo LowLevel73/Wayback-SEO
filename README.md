@@ -31,32 +31,34 @@ Then delete the folder `~/.wayback-seo`, which holds the saved analyses, the cac
 wayback-seo web
 ```
 
-The page opens in your browser and offers the three tools. Every analysis you run is saved in the left column, and you can reopen it later without downloading anything again.
+The page opens in your browser. It has a tab for each of the three tools, which work as described under [Command line](#command-line). The page adds these features:
 
-## Down detector
+- Every analysis is saved in the left column. Click it to open it again without downloading anything.
+- **New analysis** empties the forms to start a new analysis.
+- Each analysis has a **Download CSV** link.
+- In the migration check, clicking a category filters the table to the URLs in that category.
+
+The page runs one analysis at a time.
+
+## Command line
+
+### Down detector
 
 ```
 wayback-seo down --site www.example.com --from-date 2025-01-01 --to-date 2025-12-31
 ```
 
-Finds the weeks in which the site returned errors. For each URL, the tool reads the captures in date order:
+The down detector shows the weeks in which a site had errors. It saves a chart, `wayback_down.png`, that shows for each week how many URLs stopped working, how many started working again and how many pages the Wayback Machine archived. A week with far fewer archived pages than usual can also mean that the site was unreachable.
 
-- a **down event** is a capture with an error status after a capture with status 200;
-- a **recovery event** is a capture with status 200 after a capture with an error status.
+By default, every 4xx and 5xx status except 403 and 429 counts as an error. `--down-statuses 5xx` counts only server errors. `--csv FILE` saves the list of URLs that stopped or started working, with their dates.
 
-The chart (`wayback_down.png`) shows down and recovery events per week. Many recoveries in one week usually mean that a technical problem was fixed. Below them, the chart shows the captures per week. A site that is unreachable is not captured, so an outage can appear as a week with very few captures. Weeks run from Monday to Sunday; the first and last weeks may be partial and are shaded.
-
-All 4xx and 5xx statuses count as errors, except 403 and 429. `--down-statuses` changes this, for example `--down-statuses 5xx`. `--csv FILE` saves the list of events.
-
-## Migration check
+### Migration check
 
 ```
 wayback-seo migration --site www.example.com --date 2025-12-10
 ```
 
-Checks what happened to the URLs that worked before a migration. The tool takes the URLs that returned 200 in the 6 months before the date (the last 14 days are excluded, because a migration can take days) and requests each one on the live site, following its redirects.
-
-Every old URL should either return 200 or redirect permanently (301 or 308) to a page that returns 200. The results (`migration_check.csv`, one row per URL, with the full chain of redirects) fall into these categories:
+The migration check finds the URLs that stopped working after a migration. You give it the approximate date of the migration. It takes the URLs that worked in the months before that date, requests each one on the live site and sorts them into these categories:
 
 | Category | Meaning |
 |---|---|
@@ -70,23 +72,23 @@ Every old URL should either return 200 or redirect permanently (301 or 308) to a
 | redirected | Redirects permanently to a working page. |
 | still works | Returns 200. |
 
-The tool also downloads the live robots.txt of every host it meets. Google cannot crawl a URL that robots.txt disallows for Googlebot. When the old URL or a URL in its redirect chain is disallowed, the column `blocked_by_robots_txt` shows the first one.
+The check also reports the URLs that robots.txt blocks for Googlebot. The results are saved in `migration_check.csv`.
 
-The tool sends its requests to the analysed site, two at a time, with the User-Agent of a desktop Chrome browser. Use it only on sites you are allowed to audit.
+The migration check sends requests to the analysed site, so use it only on sites you are allowed to audit.
 
-## robots.txt history
+### robots.txt history
 
 ```
 wayback-seo robots --site www.example.com
 ```
 
-Lists every version of robots.txt in the archive and the rules each one added or removed. Rules are grouped by user-agent as Googlebot groups them.
+The robots.txt history shows every change to a site's robots.txt over time, with the rules that each version added or removed.
 
-The tool raises a warning when robots.txt:
+It raises a warning when robots.txt:
 
 - returns a 5xx or 429 status, which makes Google temporarily stop crawling;
 - loses at least half of its rules at once;
-- blocks the whole site for all crawlers (`User-agent: *` with only `Disallow: /`).
+- blocks the whole site for all crawlers.
 
 It raises a notice when robots.txt:
 
@@ -96,12 +98,15 @@ It raises a notice when robots.txt:
 
 The results are saved in `robots_history.csv`.
 
-## Options
+### Options
 
 - `--site` takes a host (`www.example.com`), a section of a site (`www.example.com/shop/`) or a domain with its subdomains (`*.example.com`). You can give several values; the tool analyses them together.
 - Dates can be written as `2025-12-10` or `20251210`.
 - `--json FILE` saves the full result as JSON.
 - `--verbose` prints every request.
+- `--refresh` downloads the data again instead of using the cache, and `--no-cache` skips the cache.
+
+`wayback-seo cache` shows the size of the cache and `wayback-seo cache --clear` empties it.
 
 ## Saved data
 
@@ -111,7 +116,7 @@ The tool saves its data in `~/.wayback-seo/`:
 - `cache/`: the responses downloaded from the Wayback Machine;
 - `config.toml`: the settings.
 
-A request that was already made is answered from the cache, and the tool prints the date of the download. `--refresh` downloads the data again and `--no-cache` skips the cache. The cache keeps at most 100 MB and deletes the least recently used data first. `wayback-seo cache` shows its size and `wayback-seo cache --clear` empties it.
+A request that was already made is answered from the cache, and the tool shows the date of the download. The cache keeps at most 100 MB and deletes the least recently used data first.
 
 ## Settings
 
@@ -123,7 +128,7 @@ requests_per_minute = 30     # the Wayback Machine blocks clients that exceed 30
 port = 8765                  # port of the web page
 ```
 
-The options `--cache-limit`, `--requests-per-minute` and `--port` override these settings for one run.
+On the command line, the options `--cache-limit`, `--requests-per-minute` and `--port` override these settings for one run.
 
 ## Development
 
@@ -135,4 +140,5 @@ uv run pytest
 
 - The Wayback Machine only has the pages its crawler captured. For rarely captured sites the results are incomplete.
 - The archive's API is slow for very large sites.
+- The tool reads robots.txt as Google does. Other search engines can interpret some rules differently.
 - Antivirus software that inspects HTTPS traffic can refuse the tool's connections to the Wayback Machine.
