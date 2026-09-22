@@ -177,12 +177,16 @@ def main():
     args = _parser(settings).parse_args()
     logging.basicConfig(level=logging.DEBUG if getattr(args, "verbose", False) else logging.INFO,
                         format="%(message)s", stream=sys.stderr)
-    try:
-        if args.tool == "web":
-            from .web import serve
+    if args.tool == "web":
+        from .web import serve
+        try:  # Ctrl-C stops the server and ends the program the usual way
             serve(args.host, args.port, not args.no_browser, args.analyses_dir, args.cache_dir,
                   args.cache_limit, args.requests_per_minute)
-        elif args.tool == "cache":
+        except KeyboardInterrupt:
+            print("\nStopped.", file=sys.stderr)
+        return
+    try:
+        if args.tool == "cache":
             if args.clear:
                 print(f"Deleted {clear_cache(args.cache_dir) / 1e6:.1f} MB of saved downloads.")
             else:
