@@ -285,9 +285,11 @@ function renderMigration(record) {
   const total = data.checks.length;
   const categories = Object.keys(CATEGORY_MEANING).filter((c) => counts[c]);
   const note = data.old_urls > total ? ` (the first ${total} of ${data.old_urls})` : "";
+  const blocked = data.checks.filter((c) => c.blocked_url).length;
   $("#result").innerHTML = header(record, "Migration check") + `
     <p class="result-meta">${total} URLs checked${note}: they worked between ${esc(data.start)} and ${esc(data.end)}.
       Click a category to filter the table.</p>
+    ${blocked ? `<p class="blocked-note">${blocked === 1 ? "1 old URL leads" : `${blocked} old URLs lead`} to a URL that robots.txt disallows for Googlebot: the old URL itself or a URL it redirects to. Google cannot crawl that URL. The table shows which one it is.</p>` : ""}
     <div class="categories">${categories.map((c) => `
       <div class="category" data-category="${esc(c)}">
         <span class="badge ${CATEGORY_TONE[c]}">${esc(c)}</span><br>
@@ -301,7 +303,9 @@ function renderMigration(record) {
       const final = c.hops.length ? c.hops[c.hops.length - 1] : null;
       const chain = c.hops.length > 1
         ? `<div class="chain">${c.hops.map(([url, status]) => `${esc(status)} ${esc(url)}`).join(" → ")}</div>` : "";
-      return `<tr><td class="url">${esc(c.url)}${chain}${c.problem ? `<div class="chain">${esc(c.problem)}</div>` : ""}</td>
+      const blockedUrl = c.blocked_url
+        ? `<div class="chain blocked">Disallowed by robots.txt: ${esc(c.blocked_url)}</div>` : "";
+      return `<tr><td class="url">${esc(c.url)}${chain}${c.problem ? `<div class="chain">${esc(c.problem)}</div>` : ""}${blockedUrl}</td>
         <td><span class="badge ${CATEGORY_TONE[c.category]}">${esc(c.category)}</span></td>
         <td>${final ? esc(final[1]) : ""}</td></tr>`;
     }).join("");

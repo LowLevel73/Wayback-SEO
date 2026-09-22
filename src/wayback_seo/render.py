@@ -30,7 +30,7 @@ def csv_table(tool, data):
             {key: e[key] for key in ("time", "kind", "status", "url")} for e in data["events"]]
     if tool == "migration":
         columns = ["url", "category", "flags", "first_status", "final_status", "final_url",
-                   "redirects", "chain", "problem", "last_ok_in_wayback"]
+                   "redirects", "chain", "problem", "blocked_by_robots_txt", "last_ok_in_wayback"]
         return columns, [
             {"url": c["url"], "category": c["category"], "flags": " ".join(c["flags"]),
              "first_status": c["hops"][0][1] if c["hops"] else "",
@@ -38,7 +38,8 @@ def csv_table(tool, data):
              "final_url": c["hops"][-1][0] if c["hops"] else "",
              "redirects": max(len(c["hops"]) - 1, 0),
              "chain": " -> ".join(f"{status} {url}" for url, status in c["hops"]),
-             "problem": c["problem"], "last_ok_in_wayback": c["last_ok_in_wayback"]}
+             "problem": c["problem"], "blocked_by_robots_txt": c.get("blocked_url", ""),
+             "last_ok_in_wayback": c["last_ok_in_wayback"]}
             for c in data["checks"]]
     rows = []
     for history in data:
@@ -160,6 +161,11 @@ def migration_summary(result):
     other_host = sum("other host" in c.flags for c in checks)
     if other_host:
         lines.append(f"  ({other_host} of the redirects lead to a different host)")
+    blocked = [c for c in checks if c.blocked_url]
+    if blocked:
+        lines.append(f"  {len(blocked)} old URLs lead to a URL that robots.txt disallows for "
+                     "Googlebot (the old URL or a redirect target), which Google cannot crawl:")
+        lines += [f"          e.g. {c.url} (blocked: {c.blocked_url})" for c in blocked[:3]]
     if result.missing:
         lines.append(f"  {_incomplete(result.missing)}: the URL list may be missing some.")
     return "\n".join(lines)

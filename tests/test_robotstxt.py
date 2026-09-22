@@ -1,4 +1,5 @@
-from wayback_seo.robotstxt import blocks_everything, parse_groups, rules_by_agent
+from wayback_seo.robotstxt import (blocks_everything, googlebot_rules, is_allowed, parse_groups,
+                                   rules_by_agent)
 
 
 def blocks(text):
@@ -28,3 +29,19 @@ def test_groups_for_the_same_agent_are_merged():
 
 def test_sitemap_lines_do_not_affect_groups():
     assert blocks("User-agent: *\nSitemap: https://x.it/s.xml\nDisallow: /\n")
+
+
+def test_googlebot_uses_its_own_group_else_star():
+    both = "User-agent: *\nDisallow: /a\n\nUser-agent: Googlebot\nDisallow: /b\n"
+    assert googlebot_rules(parse_groups(both)) == [("Disallow", "/b")]
+    assert googlebot_rules(parse_groups("User-agent: *\nDisallow: /a\n")) == [("Disallow", "/a")]
+    assert googlebot_rules(parse_groups("User-agent: bingbot\nDisallow: /\n")) == []
+
+
+def test_is_allowed_as_google_decides():
+    rules = [("Disallow", "/shop/"), ("Allow", "/shop/public"), ("Disallow", "/*.pdf$"),
+             ("Disallow", "/*?sort="), ("Allow", "/tie"), ("Disallow", "/tie")]
+    cases = {"/": True, "/shop/x": False, "/shop/public/x": True, "/doc.pdf": False,
+             "/doc.pdf?x=1": True, "/list?sort=a": False, "/tie": True, "/robots.txt": True}
+    for path, allowed in cases.items():
+        assert is_allowed(rules, path) == allowed, path

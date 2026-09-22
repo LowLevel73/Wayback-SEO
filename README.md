@@ -63,7 +63,9 @@ Every old URL should either return 200 or redirect permanently (301 or 308) to a
 | redirected | Redirects permanently to a working page. |
 | still works | Returns 200. |
 
-The tool sends its requests to the analysed site, two at a time. Use it only on sites you are allowed to audit.
+The tool also downloads the live robots.txt of every host it meets. Google cannot crawl a URL that robots.txt disallows for Googlebot. When the old URL or a URL in its redirect chain is disallowed, the column `blocked_by_robots_txt` shows the first one.
+
+The tool sends its requests to the analysed site, two at a time, with the User-Agent of a desktop Chrome browser. Use it only on sites you are allowed to audit.
 
 ## robots.txt history
 

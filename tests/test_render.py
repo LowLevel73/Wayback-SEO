@@ -12,7 +12,7 @@ def test_migration_csv_row():
         "url": "https://a.it/p", "category": "redirect chain", "flags": "chain other host",
         "first_status": 301, "final_status": 200, "final_url": "https://b.it/q", "redirects": 2,
         "chain": "301 https://a.it/p -> 301 https://b.it/p -> 200 https://b.it/q",
-        "problem": "", "last_ok_in_wayback": "2025-11-01"}]
+        "problem": "", "blocked_by_robots_txt": "", "last_ok_in_wayback": "2025-11-01"}]
 
 
 def test_robots_csv_rows():

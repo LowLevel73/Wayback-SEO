@@ -3,8 +3,11 @@ Migration check: the URLs that worked before a migration (from the Wayback
 Machine), each checked on the live site today.
 
 Expected: every old URL either still works or redirects permanently (301/308)
-to a working page. Everything else is reported, URL by URL.
+to a working page. Everything else is reported, URL by URL. So are URLs that
+Googlebot may not crawl: an old URL or a redirect target that the host's live
+robots.txt disallows hides the redirect from Google.
 """
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -12,6 +15,7 @@ from http.client import HTTPConnection, HTTPException, HTTPSConnection
 from urllib.parse import quote, urljoin, urlsplit
 
 from .cdx import FetchOptions, fetch_captures
+from .robotstxt import googlebot_rules, is_allowed, parse_groups
 from .util import log, parse_date, run_parallel
 
 DEFAULT_MONTHS_BEFORE = 6        # how far back before the migration to collect working URLs
@@ -22,7 +26,12 @@ DEFAULT_CHECK_WORKERS = 2        # parallel live requests; keep low, this is som
 DEFAULT_CHECK_DELAY = 0.5        # seconds each worker waits before a request
 CHECK_TIMEOUT = 20
 MAX_HOPS = 10
-LIVE_USER_AGENT = "wayback-seo/0.1 migration check (+https://github.com/LowLevel73/Wayback-SEO)"
+# The site sees an ordinary browser: no name, no link.
+LIVE_USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36")
+ROBOTS_MAX_REDIRECTS = 5         # Google follows up to 5 redirects for robots.txt
+ROBOTS_MAX_BYTES = 500 * 1024    # Google reads the first 500 KiB
+BLOCK_ALL = [("Disallow", "/")]
 
 TEMPORARY = {302, 303, 307}
 
@@ -48,6 +57,7 @@ class UrlCheck:
     flags: list                  # "temporary", "chain", "homepage", "other host"
     hops: list                   # [(url, status), ...] from the old URL to the final answer
     problem: str = ""            # network error or redirect loop, if any
+    blocked_url: str = ""        # first URL of hops that robots.txt disallows for Googlebot
 
 
 @dataclass
@@ -97,8 +107,8 @@ def collect_old_urls(captures, include_query=False):
     return old
 
 
-def _request(url):
-    """One GET without following redirects; returns (status, Location header)."""
+def _request(url, read_body=False):
+    """One GET without following redirects; returns (status, Location header, body)."""
     parts = urlsplit(url)
     connection = (HTTPSConnection if parts.scheme == "https" else HTTPConnection)(
         parts.hostname, parts.port, timeout=CHECK_TIMEOUT)
@@ -109,7 +119,8 @@ def _request(url):
         connection.request("GET", target, headers={"User-Agent": LIVE_USER_AGENT,
                                                    "Accept": "text/html"})
         response = connection.getresponse()
-        return response.status, response.getheader("Location")
+        body = response.read(ROBOTS_MAX_BYTES).decode("utf-8", "replace") if read_body else ""
+        return response.status, response.getheader("Location"), body
     finally:
         connection.close()
 
@@ -120,7 +131,7 @@ def check_url(url, delay=DEFAULT_CHECK_DELAY):
     try:
         for _ in range(MAX_HOPS + 1):
             time.sleep(delay)
-            status, location = _request(current)
+            status, location, _ = _request(current)
             hops.append((current, status))
             if not (300 <= status < 400 and location):
                 return hops, ""
@@ -130,6 +141,55 @@ def check_url(url, delay=DEFAULT_CHECK_DELAY):
         return hops, "too many redirects"
     except (OSError, HTTPException, ValueError) as e:
         return hops, f"{type(e).__name__}: {e}"
+
+
+def _fetch_robots(url, delay):
+    """
+    (rules, problem): the Googlebot rules of a live robots.txt, treated as Google
+    does. A 4xx or too many redirects allow everything; a 5xx, a 429 or no
+    answer at all disallow everything.
+    """
+    current = url
+    try:
+        for _ in range(ROBOTS_MAX_REDIRECTS + 1):
+            time.sleep(delay)
+            status, location, body = _request(current, read_body=True)
+            if 300 <= status < 400 and location:
+                current = urljoin(current, location)
+                continue
+            if 200 <= status < 300:
+                return googlebot_rules(parse_groups(body)), ""
+            if status == 429 or status >= 500:
+                return BLOCK_ALL, f"returned {status}"
+            return [], ""
+        return [], ""
+    except (OSError, HTTPException, ValueError) as e:
+        return BLOCK_ALL, f"could not be downloaded ({type(e).__name__})"
+
+
+class LiveRobots:
+    """The live robots.txt of every host met during the check, downloaded once each."""
+
+    def __init__(self, delay):
+        self.delay = delay
+        self.rules = {}
+        self.lock = threading.Lock()
+
+    def allowed(self, url):
+        parts = urlsplit(url)
+        origin = f"{parts.scheme}://{parts.netloc.lower()}"
+        with self.lock:
+            if origin not in self.rules:
+                rules, problem = _fetch_robots(origin + "/robots.txt", self.delay)
+                if problem:
+                    log.warning("%s/robots.txt %s: Google does not crawl any URL of this host",
+                                origin, problem)
+                self.rules[origin] = rules
+        path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+        return is_allowed(self.rules[origin], path)
+
+    def first_blocked(self, hops):
+        return next((url for url, _ in hops if not self.allowed(url)), "")
 
 
 def _is_homepage(url):
@@ -192,11 +252,20 @@ def run_migration(sites, migration_date, months_before=DEFAULT_MONTHS_BEFORE,
     log.info("Checking %d URLs on the live site, %d at a time", len(urls), check_workers)
     progress = lambda done, total: (done % 50 == 0 or done == total) and log.info(
         "live check: %d/%d", done, total)
-    checked, _ = run_parallel({url: (lambda url=url: check_url(url, check_delay))
-                               for url in urls}, check_workers, progress)
+    robots = LiveRobots(check_delay)
+
+    def check(url):
+        hops, problem = check_url(url, check_delay)
+        return hops, problem, robots.first_blocked(hops)
+
+    checked, _ = run_parallel({url: (lambda url=url: check(url)) for url in urls},
+                              check_workers, progress)
     checks = []
     for url in urls:
-        hops, problem = checked.get(url, ([], "not checked"))
+        hops, problem, blocked_url = checked.get(url, ([], "not checked", ""))
         category, flags = classify(url, hops, problem)
-        checks.append(UrlCheck(url, old[url], category, flags, hops, problem))
+        checks.append(UrlCheck(url, old[url], category, flags, hops, problem, blocked_url))
+    blocked = sum(bool(c.blocked_url) for c in checks)
+    if blocked:
+        log.info("%d old URLs lead to a URL that robots.txt disallows for Googlebot", blocked)
     return MigrationResult(sites, migration_date, start, end, len(old), checks, missing)

@@ -9,6 +9,9 @@ where a User-agent line follows a rule. So "User-agent: *" followed only by
 Google. Sitemap lines are independent of groups.
 """
 
+import functools
+import re
+
 GROUP_KEYS = {"user-agent", "allow", "disallow"}
 
 
@@ -64,3 +67,33 @@ def rules_by_agent(groups):
 def blocks_everything(groups):
     """True when the '*' rules are exactly one "Disallow: /": no crawler may fetch anything."""
     return rules_by_agent(groups).get("*") == [("Disallow", "/")]
+
+
+def googlebot_rules(groups):
+    """The rules Googlebot follows: its own group if there is one, else the '*' group."""
+    merged = rules_by_agent(groups)
+    return merged.get("googlebot", merged.get("*", []))
+
+
+@functools.cache
+def _pattern(path):
+    """A rule path as a regex: '*' matches any characters, a final '$' ends the URL."""
+    end = path.endswith("$")
+    body = "".join(".*" if c == "*" else re.escape(c) for c in (path[:-1] if end else path))
+    return re.compile(body + ("$" if end else ""))
+
+
+def is_allowed(rules, path):
+    """
+    Whether a URL path (with its query string) may be crawled, as Google decides:
+    the rule with the longest path wins, and Allow wins a tie. /robots.txt is
+    always allowed.
+    """
+    if path == "/robots.txt":
+        return True
+    best = None  # (length, allowed)
+    for directive, rule in rules:
+        if _pattern(rule).match(path):
+            candidate = (len(rule), directive == "Allow")
+            best = max(best, candidate) if best else candidate
+    return best is None or best[1]

@@ -140,6 +140,7 @@ td.url { overflow-wrap: anywhere; }
 .badge.warn { background: var(--code-bg); color: var(--ink); }
 .badge.good { background: var(--ok-bg); color: var(--recovery); }
 .chain { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.chain.blocked, .blocked-note { color: var(--down); }
 
 .categories { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin: 14px 0 20px; }
 .category { background: var(--panel); border-radius: 8px; padding: 10px 14px; cursor: pointer; border: 1px solid transparent; }
