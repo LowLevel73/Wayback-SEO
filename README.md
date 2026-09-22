@@ -1,6 +1,6 @@
 # Wayback SEO
 
-Wayback SEO uses the Wayback Machine to look into a website's past. It has three tools: a down detector, a migration check and a robots.txt history. You can run them from the command line or from a web page.
+Wayback SEO finds the technical problems of a website's past in the archive of the Wayback Machine. It shows the weeks when the site's pages returned errors, the URLs that a migration broke, and the changes to its robots.txt that stopped Google from crawling it. It has three tools, one for each of those questions, and you can run them from the command line or from a web page.
 
 ## Install
 
