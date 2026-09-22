@@ -19,6 +19,8 @@ const CATEGORY_MEANING = {
   "still works": "same URL still answers 200",
 };
 
+const ROBOTS_FILTER = "robots.txt";  // the box of blocked URLs, which filters like a category
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g,
@@ -286,20 +288,24 @@ function renderMigration(record) {
   const categories = Object.keys(CATEGORY_MEANING).filter((c) => counts[c]);
   const note = data.old_urls > total ? ` (the first ${total} of ${data.old_urls})` : "";
   const blocked = data.checks.filter((c) => c.blocked_url).length;
+  const box = (key, tone, label, n, meaning) => `
+      <div class="category" data-category="${esc(key)}">
+        <span class="badge ${tone}">${esc(label)}</span><br>
+        <b>${n}</b><span class="pct">${(100 * n / total).toFixed(1)}%</span>
+        <p>${esc(meaning)}</p></div>`;
   $("#result").innerHTML = header(record, "Migration check") + `
     <p class="result-meta">${total} URLs checked${note}: they worked between ${esc(data.start)} and ${esc(data.end)}.
       Click a category to filter the table.</p>
-    ${blocked ? `<p class="blocked-note">${blocked === 1 ? "1 old URL leads" : `${blocked} old URLs lead`} to a URL that robots.txt disallows for Googlebot: the old URL itself or a URL it redirects to. Google cannot crawl that URL. The table shows which one it is.</p>` : ""}
-    <div class="categories">${categories.map((c) => `
-      <div class="category" data-category="${esc(c)}">
-        <span class="badge ${CATEGORY_TONE[c]}">${esc(c)}</span><br>
-        <b>${counts[c]}</b><span class="pct">${(100 * counts[c] / total).toFixed(1)}%</span>
-        <p>${esc(CATEGORY_MEANING[c])}</p></div>`).join("")}</div>
+    <div class="categories">${categories.map((c) =>
+      box(c, CATEGORY_TONE[c], c, counts[c], CATEGORY_MEANING[c])).join("")}${blocked ?
+      box(ROBOTS_FILTER, "bad", "blocked by robots.txt", blocked,
+          "robots.txt blocks the URL or its redirect for Googlebot") : ""}</div>
     <div class="table-wrap"><table><thead><tr><th>Old URL</th><th>Result</th><th>Final status</th></tr></thead>
       <tbody id="checks"></tbody></table></div>`;
 
   const fill = (category) => {
-    $("#checks").innerHTML = data.checks.filter((c) => !category || c.category === category).map((c) => {
+    const shown = (c) => !category || (category === ROBOTS_FILTER ? !!c.blocked_url : c.category === category);
+    $("#checks").innerHTML = data.checks.filter(shown).map((c) => {
       const final = c.hops.length ? c.hops[c.hops.length - 1] : null;
       const chain = c.hops.length > 1
         ? `<div class="chain">${c.hops.map(([url, status]) => `${esc(status)} ${esc(url)}`).join(" → ")}</div>` : "";
