@@ -143,6 +143,7 @@ On the command line, the options `--cache-limit`, `--requests-per-minute` and `-
 
 ```
 uv run pytest
+uv run ruff check
 ```
 
 ## Limitations

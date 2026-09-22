@@ -9,13 +9,21 @@ authors = [{ name = "Enrico Altavilla" }]
 dependencies = ["matplotlib>=3.7"]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.14"]
 
 [project.urls]
 Homepage = "https://github.com/LowLevel73/Wayback-SEO"
 
 [project.scripts]
 wayback-seo = "wayback_seo.cli:main"
+
+# What ruff is here for: dead and broken code, not style. The F rules are
+# pyflakes — an import nothing uses, a variable nothing reads, a name defined
+# twice — and they state facts rather than preferences. The rest of ruff's
+# default set reports opinions this project has not formed, and a check that
+# reports what nobody intends to change is a check that gets switched off.
+[tool.ruff.lint]
+select = ["F"]
 
 [build-system]
 requires = ["uv_build>=0.12,<0.13"]
