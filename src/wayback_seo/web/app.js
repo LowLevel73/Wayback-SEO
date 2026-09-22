@@ -311,7 +311,7 @@ function renderMigration(record) {
       const chain = c.hops.length > 1
         ? `<div class="chain">${c.hops.map(([url, status]) => `${esc(status)} ${esc(url)}`).join(" → ")}</div>` : "";
       const blockedUrl = c.blocked_url
-        ? `<div class="chain blocked">Disallowed by robots.txt: ${esc(c.blocked_url)}</div>` : "";
+        ? `<div class="chain blocked">Disallowed by robots.txt${c.blocked_url === c.url ? "" : `: ${esc(c.blocked_url)}`}</div>` : "";
       return `<tr><td class="url">${esc(c.url)}${chain}${c.problem ? `<div class="chain">${esc(c.problem)}</div>` : ""}${blockedUrl}</td>
         <td><span class="badge ${CATEGORY_TONE[c.category]}">${esc(c.category)}</span></td>
         <td>${final ? esc(final[1]) : ""}</td></tr>`;
