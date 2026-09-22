@@ -18,7 +18,7 @@ DEFAULTS = {
 TEMPLATE = f"""\
 # Wayback SEO settings. A command-line option overrides the setting for that run.
 cache_limit_mb = {DEFAULTS["cache_limit_mb"]}         # maximum size of the cache, in MB
-requests_per_minute = {DEFAULTS["requests_per_minute"]}     # the Wayback Machine blocks clients that exceed about 60
+requests_per_minute = {DEFAULTS["requests_per_minute"]}     # the Wayback Machine blocks clients that exceed 30
 port = {DEFAULTS["port"]}                  # port of the web page
 """
 

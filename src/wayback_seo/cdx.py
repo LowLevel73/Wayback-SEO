@@ -34,8 +34,8 @@ class FetchOptions:
                                  # pages for one busy site), 200 kept a year of corriere.it
                                  # to 41 requests
     max_workers: int = 3         # parallel requests
-    requests_per_minute: int = 55  # IA staff: "an average of 60/min. Over that and we start
-                                   # sending 429s", and ignoring those leads to a firewall block
+    requests_per_minute: int = 30  # IA's limit for the CDX API (per the EDGI wayback library);
+                                   # going over it leads to 429s, then a firewall block
     retries: int = 5             # extra attempts on 429/5xx, network errors and cut-off bodies
     cache_dir: str | None = CACHE_DIR  # responses saved here and reused by later runs,
                                        # so a rerun resumes and can run offline; None = no cache
@@ -337,6 +337,7 @@ def fetch_captures(sites, date_from=None, date_to=None, options=None):
     date_from, date_to = cdx_date(date_from), cdx_date(date_to)
     captures, missing = [], []
     for site in sites:
+        log.info("%s: asking the Wayback Machine for its captures…", site)
         pages, cached_on = _num_pages(site, date_from, date_to, options)
         log.info("%s: %d page%s", site, pages, "" if pages == 1 else "s")
         if pages == 1:
@@ -369,6 +370,7 @@ def list_exact(url, date_from=None, date_to=None, options=None):
         params["from"] = cdx_date(date_from)
     if date_to:
         params["to"] = cdx_date(date_to)
+    log.info("%s: asking the Wayback Machine for its archived versions…", url)
     rows, cached_on = get_rows(f"{CDX_BASE}?{urlencode(params)}", options, url)
     _report_cache(url, [cached_on])
     return [tuple(row) for row in rows]

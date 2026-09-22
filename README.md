@@ -4,19 +4,26 @@ Wayback SEO uses the Wayback Machine to look into a website's past. It has three
 
 ## Install
 
-macOS and Linux:
+Install uv, which also installs Python if it is missing. If you already have uv, skip this step.
+
+- macOS and Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- Windows (PowerShell): `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+
+Open a new terminal, then install Wayback SEO:
 
 ```
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv tool install git+https://github.com/LowLevel73/Wayback-SEO
+uv tool install https://github.com/LowLevel73/Wayback-SEO/archive/main.zip
 ```
 
-Windows (PowerShell):
+To update Wayback SEO, run the same command with `--reinstall`.
+
+## Uninstall
 
 ```
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-uv tool install git+https://github.com/LowLevel73/Wayback-SEO
+uv tool uninstall wayback-seo
 ```
+
+Then delete the folder `~/.wayback-seo`, which holds the saved analyses, the cache and the settings.
 
 ## Web page
 
@@ -112,7 +119,7 @@ The tool creates `~/.wayback-seo/config.toml` on its first run:
 
 ```toml
 cache_limit_mb = 100         # maximum size of the cache, in MB
-requests_per_minute = 55     # the Wayback Machine blocks clients that exceed about 60
+requests_per_minute = 30     # the Wayback Machine blocks clients that exceed 30
 port = 8765                  # port of the web page
 ```
 
@@ -128,3 +135,4 @@ uv run pytest
 
 - The Wayback Machine only has the pages its crawler captured. For rarely captured sites the results are incomplete.
 - The archive's API is slow for very large sites.
+- Antivirus software that inspects HTTPS traffic can refuse the tool's connections to the Wayback Machine.
