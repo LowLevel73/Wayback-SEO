@@ -54,7 +54,9 @@ def run_tool(tool, params, cache_dir, cache_limit_mb,
             int(params.get("max_urls") or migration.DEFAULT_MAX_URLS),
             include_query=bool(params.get("include_query")), options=options)
     elif tool == "robots":
-        result = robots.run_robots(sites, blank("date_from"), blank("date_to"), options=options)
+        result = robots.run_robots(sites, blank("date_from"), blank("date_to"),
+                                   int(params.get("max_versions") or robots.DEFAULT_MAX_VERSIONS),
+                                   options)
     else:
         raise ValueError(f"unknown tool {tool!r}")
     return result, render.to_data(result)
