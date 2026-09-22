@@ -60,13 +60,17 @@ function fillForm(tool, params) {
   }
 }
 
-function setDefaultDates() {
-  const today = new Date();
-  const yearAgo = new Date(today);
-  yearAgo.setDate(today.getDate() - 365);
-  const form = $('form[data-tool="down"]');
-  form.date_to.value = isoDay(today);
-  form.date_from.value = isoDay(yearAgo);
+// Back to the empty form of a new analysis.
+function resetForm(tool) {
+  const form = $(`form[data-tool="${tool}"]`);
+  form.reset();
+  if (tool === "down") {
+    const today = new Date();
+    const yearAgo = new Date(today);
+    yearAgo.setDate(today.getDate() - 365);
+    form.date_to.value = isoDay(today);
+    form.date_from.value = isoDay(yearAgo);
+  }
 }
 
 // ---------- running an analysis ----------
@@ -74,6 +78,7 @@ function setDefaultDates() {
 async function run(form) {
   const params = formParams(form);
   $$(".run").forEach((b) => (b.disabled = true));
+  if (shownTool && shownTool !== form.dataset.tool) resetForm(shownTool);
   shownTool = form.dataset.tool;
   $("#progress").hidden = false;
   $("#progress-title").textContent = `Running: ${TOOL_NAMES[form.dataset.tool]}…`;
@@ -165,6 +170,9 @@ async function openAnalysis(id) {
   currentAnalysis = id;
   history.replaceState(null, "", `#${id}`);  // the address opens this analysis again
   $$("#history-list li").forEach((li) => li.classList.toggle("active", li.dataset.id === id));
+  // only the tool of the open analysis shows its values; the others start empty
+  if (shownTool) resetForm(shownTool);
+  resetForm(record.tool);
   shownTool = record.tool;
   $("#progress").hidden = true;
   $("#progress-log").textContent = "";
@@ -173,12 +181,28 @@ async function openAnalysis(id) {
   ({ down: renderDown, migration: renderMigration, robots: renderRobots })[record.tool](record);
 }
 
+// Empties every form and closes the open analysis. A run in progress keeps its log.
+function newAnalysis() {
+  Object.keys(TOOL_NAMES).forEach(resetForm);
+  currentAnalysis = null;
+  history.replaceState(null, "", location.pathname);
+  $$("#history-list li").forEach((li) => li.classList.remove("active"));
+  if ($(".run").disabled) return;
+  shownTool = null;
+  $("#result").innerHTML = "";
+  $("#progress-log").textContent = "";
+  showTool(currentTool);
+}
+
 async function deleteAnalysis(id) {
   if (!confirm("Delete this analysis?")) return;
   await fetch(`api/analyses/${id}`, { method: "DELETE" });
   if (id === currentAnalysis) {
     currentAnalysis = null;
     $("#result").innerHTML = "";
+    resetForm(shownTool);
+    shownTool = null;
+    history.replaceState(null, "", location.pathname);
   }
   await loadHistory();
 }
@@ -332,9 +356,10 @@ $("#history-list").addEventListener("click", (e) => {
   else openAnalysis(li.dataset.id);
 });
 $("#cache-clear").addEventListener("click", clearCache);
+$("#new-analysis").addEventListener("click", newAnalysis);
 $("#theme").addEventListener("click", () =>
   applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
 $("#theme").textContent = document.documentElement.dataset.theme === "dark" ? "Light" : "Dark";
-setDefaultDates();
+resetForm("down");
 loadCacheSize();
 loadHistory().then(() => location.hash.length > 1 && openAnalysis(location.hash.slice(1)));

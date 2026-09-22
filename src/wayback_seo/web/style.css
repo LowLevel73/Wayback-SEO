@@ -74,7 +74,8 @@ body {
 main { flex: 1; min-width: 0; padding: 24px 32px 48px; max-width: 1200px; }
 header { display: flex; justify-content: space-between; align-items: flex-start; }
 header h1 { margin: 0; font-size: 24px; }
-#theme {
+#new-analysis { width: 100%; margin-bottom: 12px; }
+#theme, #new-analysis {
   border: 1px solid var(--border); background: var(--panel); color: var(--ink);
   border-radius: 6px; padding: 5px 12px; font: inherit; font-size: 14px; cursor: pointer;
 }
