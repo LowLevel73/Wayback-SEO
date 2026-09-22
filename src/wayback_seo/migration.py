@@ -10,12 +10,12 @@ robots.txt disallows hides the redirect from Google.
 import threading
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from http.client import HTTPConnection, HTTPException, HTTPSConnection
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import urlsplit
 
+from . import http
 from .cdx import FetchOptions, fetch_captures
 from .robotstxt import googlebot_rules, is_allowed, parse_groups
-from .util import log, parse_date, pause, run_parallel
+from .util import log, parse_date, run_parallel
 
 DEFAULT_MONTHS_BEFORE = 6        # how far back before the migration to collect working URLs
 DEFAULT_MARGIN_DAYS = 14         # days before the date to skip: migrations take a while and
@@ -23,13 +23,6 @@ DEFAULT_MARGIN_DAYS = 14         # days before the date to skip: migrations take
 DEFAULT_MAX_URLS = 1000          # cap on live checks, one request (plus redirects) per URL
 DEFAULT_CHECK_WORKERS = 2        # parallel live requests; keep low, this is someone's site
 DEFAULT_CHECK_DELAY = 0.5        # seconds each worker waits before a request
-CHECK_TIMEOUT = 20
-MAX_HOPS = 10
-# The site sees an ordinary browser: no name, no link.
-LIVE_USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                   "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36")
-ROBOTS_MAX_REDIRECTS = 5         # Google follows up to 5 redirects for robots.txt
-ROBOTS_MAX_BYTES = 500 * 1024    # Google reads the first 500 KiB
 BLOCK_ALL = [("Disallow", "/")]
 
 TEMPORARY = {302, 303, 307}
@@ -106,52 +99,10 @@ def collect_old_urls(captures, include_query=False):
     return old
 
 
-def _location(response):
-    """
-    The Location header. http.client decodes headers as Latin-1, but servers
-    often send raw UTF-8 ("/città"), so decode those bytes again as UTF-8.
-    """
-    location = response.getheader("Location")
-    try:
-        return location.encode("latin-1").decode("utf-8") if location else location
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return location
-
-
-def _request(url, read_body=False):
-    """One GET without following redirects; returns (status, Location header, body)."""
-    parts = urlsplit(url)
-    connection = (HTTPSConnection if parts.scheme == "https" else HTTPConnection)(
-        parts.hostname, parts.port, timeout=CHECK_TIMEOUT)
-    target = quote(parts.path or "/", safe="/%:@!$&'()*+,;=-._~")
-    if parts.query:
-        target += "?" + quote(parts.query, safe="/%:@!$&'()*+,;=-._~?")
-    try:
-        connection.request("GET", target, headers={"User-Agent": LIVE_USER_AGENT,
-                                                   "Accept": "text/html"})
-        response = connection.getresponse()
-        body = response.read(ROBOTS_MAX_BYTES).decode("utf-8", "replace") if read_body else ""
-        return response.status, _location(response), body
-    finally:
-        connection.close()
-
-
 def check_url(url, delay=DEFAULT_CHECK_DELAY):
-    """Follow redirects by hand. Returns (hops, problem) with hops = [(url, status), ...]."""
-    hops, current = [], url
-    try:
-        for _ in range(MAX_HOPS + 1):
-            pause(delay)
-            status, location, _ = _request(current)
-            hops.append((current, status))
-            if not (300 <= status < 400 and location):
-                return hops, ""
-            current = urljoin(current, location)
-            if any(current == seen for seen, _ in hops):
-                return hops, "redirect loop"
-        return hops, "too many redirects"
-    except (OSError, HTTPException, ValueError) as e:
-        return hops, f"{type(e).__name__}: {e}"
+    """The redirects of one URL on the live site: (hops, problem) as follow_redirects gives them."""
+    hops, _, _, problem = http.follow_redirects(url, delay=delay)
+    return hops, problem
 
 
 def _fetch_robots(url, delay):
@@ -160,22 +111,16 @@ def _fetch_robots(url, delay):
     does. A 4xx or too many redirects allow everything; a 5xx, a 429 or no
     answer at all disallow everything.
     """
-    current = url
-    try:
-        for _ in range(ROBOTS_MAX_REDIRECTS + 1):
-            pause(delay)
-            status, location, body = _request(current, read_body=True)
-            if 300 <= status < 400 and location:
-                current = urljoin(current, location)
-                continue
-            if 200 <= status < 300:
-                return googlebot_rules(parse_groups(body)), ""
-            if status == 429 or status >= 500:
-                return BLOCK_ALL, f"returned {status}"
-            return [], ""
-        return [], ""
-    except (OSError, HTTPException, ValueError) as e:
-        return BLOCK_ALL, f"could not be downloaded ({type(e).__name__})"
+    hops, _, body, problem = http.follow_redirects(url, http.ROBOTS_MAX_HOPS, read_body=True,
+                                                   delay=delay)
+    if problem and problem not in http.REDIRECT_PROBLEMS:
+        return BLOCK_ALL, f"could not be downloaded ({problem.split(':')[0]})"
+    status = hops[-1][1] if not problem else 404  # a loop is a 404 for Google
+    if 200 <= status < 300:
+        return googlebot_rules(parse_groups(body)), ""
+    if status == 429 or status >= 500:
+        return BLOCK_ALL, f"returned {status}"
+    return [], ""
 
 
 class LiveRobots:

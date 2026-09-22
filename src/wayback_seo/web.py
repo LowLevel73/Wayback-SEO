@@ -1,7 +1,8 @@
 """
 Web interface: a small local server for the three sub-tools. Analyses run one
-at a time in a background thread; the page polls for progress, and every
-finished analysis is saved as JSON so it can be reopened without new requests.
+at a time in a background thread; the page polls for progress and can stop the
+analysis, and every finished analysis is saved as JSON so it can be reopened
+without new requests.
 
 Every URL the page uses is relative, so the server works both at its own
 address and behind a reverse proxy under a subpath, with no configuration.

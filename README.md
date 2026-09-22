@@ -79,7 +79,7 @@ The migration check finds the URLs that stopped working after a migration. You g
 | redirected | Redirects permanently to a working page. |
 | still works | Returns 200. |
 
-The check also reports the URLs that robots.txt blocks for Googlebot. The results are saved in `migration_check.csv`.
+The check takes at most 1000 URLs; `--max-urls` changes that number. It also reports the URLs that robots.txt blocks for Googlebot. The results are saved in `migration_check.csv`.
 
 The migration check sends requests to the analysed site, so use it only on sites you are allowed to audit.
 
@@ -102,6 +102,8 @@ It raises a notice when robots.txt:
 - returns 404, 410 or another status that allows crawling of every URL;
 - returns an HTML page;
 - lifts a whole-site block.
+
+The tool downloads the latest 200 archived versions; `--max-versions` changes that number.
 
 The results are saved in `robots_history.csv`.
 

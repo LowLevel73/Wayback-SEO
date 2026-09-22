@@ -1,17 +1,16 @@
 """
 robots.txt history: every distinct version of a site's robots.txt that the
 Wayback Machine archived, the rules each version added or removed, and
-warnings and notices for changes to the file as a whole.
+warnings and notices for changes to the file as a whole. The last version is
+the file online today, which the archive may not have captured yet.
 """
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from http.client import HTTPException
-from urllib.parse import urljoin
 
+from . import http
 from .cdx import RAW_CAPTURE, FetchOptions, get_raw_capture, list_exact
-from .migration import ROBOTS_MAX_REDIRECTS, _request
 from .robotstxt import blocks_everything, parse_groups, parse_sitemaps, rules_by_agent
-from .util import log, pause, run_parallel
+from .util import log, run_parallel
 
 DEFAULT_MAX_VERSIONS = 200       # most recent distinct versions to download
 
@@ -46,17 +45,13 @@ def live_version(robots_url):
     """
     for scheme in ("https", "http"):
         url = f"{scheme}://{robots_url}"
-        try:
-            for _ in range(ROBOTS_MAX_REDIRECTS + 1):
-                pause()
-                status, location, text = _request(url, read_body=True)
-                if 300 <= status < 400 and location:
-                    url = urljoin(url, location)
-                    continue
-                return url, status, text
-            return url, 404, ""  # too many redirects: Google treats it as a 404
-        except (OSError, HTTPException, ValueError) as e:
-            log.warning("%s: could not be downloaded (%s)", url, type(e).__name__)
+        hops, _, text, problem = http.follow_redirects(url, http.ROBOTS_MAX_HOPS, read_body=True)
+        if problem in http.REDIRECT_PROBLEMS:
+            return hops[-1][0], 404, ""  # too many redirects: Google treats it as a 404
+        if problem:
+            log.warning("%s: could not be downloaded (%s)", url, problem.split(":")[0])
+            continue
+        return hops[-1][0], hops[-1][1], text
     return None
 
 
