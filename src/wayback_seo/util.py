@@ -1,6 +1,7 @@
 """Small helpers shared by every sub-tool: dates, logging and parallel work."""
 import concurrent.futures
 import logging
+import threading
 from datetime import date, datetime
 from pathlib import Path
 
@@ -13,6 +14,21 @@ log = logging.getLogger("wayback_seo")
 HOME = Path.home() / ".wayback-seo"
 CACHE_DIR = str(HOME / "cache")          # saved downloads from the Wayback Machine
 ANALYSES_DIR = str(HOME / "analyses")    # analyses saved by the web interface
+
+
+class Cancelled(Exception):
+    """Raised inside an analysis that the user asked to stop."""
+
+
+# Set while the analysis on this process must stop. The command line never sets
+# it (Ctrl-C ends the process); the web interface sets it for its Stop button.
+STOP = threading.Event()
+
+
+def pause(seconds=0):
+    """Wait, and raise Cancelled at once if the analysis is asked to stop meanwhile."""
+    if STOP.wait(seconds):
+        raise Cancelled("stopped")
 
 
 def parse_date(value):
@@ -36,6 +52,7 @@ def run_parallel(jobs, max_workers, on_done=None):
     others. on_done(finished, total) is called after each job.
     """
     results, failed = {}, []
+    pause()
     # No "with" block: its exit waits for every queued job, so Ctrl-C would seem
     # to do nothing for minutes. On interrupt, cancel what hasn't started and
     # re-raise; the command line then exits without waiting for the rest.
@@ -46,13 +63,15 @@ def run_parallel(jobs, max_workers, on_done=None):
             key = futures[future]
             try:
                 results[key] = future.result()
+            except Cancelled:
+                raise
             except Exception as e:
                 failed.append(key)
                 log.warning("%s failed after retries (%s: %s); continuing without it",
                             key, type(e).__name__, e)
             if on_done:
                 on_done(done, len(futures))
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, Cancelled):
         pool.shutdown(wait=False, cancel_futures=True)
         raise
     pool.shutdown(wait=True)

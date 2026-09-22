@@ -5,10 +5,13 @@ warnings and notices for changes to the file as a whole.
 """
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from http.client import HTTPException
+from urllib.parse import urljoin
 
 from .cdx import RAW_CAPTURE, FetchOptions, get_raw_capture, list_exact
+from .migration import ROBOTS_MAX_REDIRECTS, _request
 from .robotstxt import blocks_everything, parse_groups, parse_sitemaps, rules_by_agent
-from .util import log, run_parallel
+from .util import log, pause, run_parallel
 
 DEFAULT_MAX_VERSIONS = 200       # most recent distinct versions to download
 
@@ -19,6 +22,7 @@ class Version:
     capture: str                 # Wayback URL of the archived file
     status: int
     rules: int                   # number of rules in this version
+    live: bool = False           # the file online today, not a capture from the archive
     warnings: list = field(default_factory=list)  # serious changes to the file as a whole
     notices: list = field(default_factory=list)   # changes worth knowing, less serious
     added: list = field(default_factory=list)    # (user-agent, directive, value)
@@ -30,8 +34,30 @@ class RobotsHistory:
     robots_url: str
     versions: list = field(default_factory=list)  # oldest first; only versions that changed
     archived: int = 0            # distinct versions found in the archive
+    live_unchanged: bool = False  # the file online today is the latest version listed
     skipped: int = 0             # oldest versions left out by max_versions
     failed: int = 0              # versions that could not be downloaded
+
+
+def live_version(robots_url):
+    """
+    (url, status, text) of the robots.txt online today, https first and http
+    after it, following redirects as Google does. None when neither answers.
+    """
+    for scheme in ("https", "http"):
+        url = f"{scheme}://{robots_url}"
+        try:
+            for _ in range(ROBOTS_MAX_REDIRECTS + 1):
+                pause()
+                status, location, text = _request(url, read_body=True)
+                if 300 <= status < 400 and location:
+                    url = urljoin(url, location)
+                    continue
+                return url, status, text
+            return url, 404, ""  # too many redirects: Google treats it as a 404
+        except (OSError, HTTPException, ValueError) as e:
+            log.warning("%s: could not be downloaded (%s)", url, type(e).__name__)
+    return None
 
 
 def robots_url(site):
@@ -88,12 +114,16 @@ def history(site, date_from=None, date_to=None, max_versions=DEFAULT_MAX_VERSION
          for ts, url, status in versions if status == "200"}, options.max_workers)
     result.failed = len(failed)
 
+    entries = [(datetime.strptime(ts[:8], "%Y%m%d").date(),
+                RAW_CAPTURE.format(timestamp=ts, url=url), int(status), texts.get(ts, ""), False)
+               for ts, url, status in versions if ts not in failed]
+    live = live_version(result.robots_url)
+    if live:
+        live_url, live_status, live_text = live
+        entries.append((date.today(), live_url, live_status, live_text, True))
+
     previous, previous_blocks, previous_problem = None, False, None
-    for ts, url, status in versions:
-        if ts in failed:
-            continue
-        status = int(status)
-        text = texts.get(ts, "")
+    for day, capture, status, text, is_live in entries:
         problem = _problem(text, status)
         if not problem:
             rules, blocks_all = parse_rules(text)
@@ -101,8 +131,7 @@ def history(site, date_from=None, date_to=None, max_versions=DEFAULT_MAX_VERSION
             rules, blocks_all = previous or set(), previous_blocks
         else:  # treated as a 404: no rules
             rules, blocks_all = set(), False
-        version = Version(datetime.strptime(ts[:8], "%Y%m%d").date(),
-                          RAW_CAPTURE.format(timestamp=ts, url=url), status, len(rules))
+        version = Version(day, capture, status, len(rules), live=is_live)
         if problem and problem != previous_problem:  # a repeated 404 is not a change
             level, message = problem
             (version.warnings if level == "warning" else version.notices).append(message)
@@ -119,6 +148,8 @@ def history(site, date_from=None, date_to=None, max_versions=DEFAULT_MAX_VERSION
         if (previous is None or version.warnings or version.notices or version.added
                 or version.removed):
             result.versions.append(version)
+        elif is_live:
+            result.live_unchanged = True
         previous, previous_blocks, previous_problem = rules, blocks_all, problem
     return result
 

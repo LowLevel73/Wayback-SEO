@@ -183,7 +183,9 @@ def robots_summary(histories):
         lines.append(f"robots.txt history — {history.robots_url} "
                      f"({history.archived} archived versions)")
         for i, version in enumerate(history.versions):
-            if i == 0:
+            if version.live:
+                lines.append(f"{version.date}  robots.txt online today")
+            elif i == 0:
                 first = (f"oldest of the latest {history.archived - history.skipped} versions"
                          if history.skipped else "first archived version")
                 lines.append(f"{version.date}  {first}: {version.rules} rules")
@@ -194,6 +196,8 @@ def robots_summary(histories):
             for sign, rules in (("+", version.added), ("-", version.removed)):
                 lines += [f"            {sign} [{agent}] {directive}: {value}"
                           for agent, directive, value in rules]
+        if history.live_unchanged:
+            lines.append("  the robots.txt online today is the same as the latest version above")
         if history.failed:
             lines.append(f"  {history.failed} versions could not be downloaded")
         lines.append("")

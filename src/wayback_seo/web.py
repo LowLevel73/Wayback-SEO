@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 
 from . import down, migration, render, robots
 from .cdx import FetchOptions, cache_size, clear_cache
-from .util import ANALYSES_DIR, CACHE_DIR, log
+from .util import ANALYSES_DIR, CACHE_DIR, STOP, Cancelled, log
 
 STATIC = Path(__file__).parent / "web"
 
@@ -105,7 +105,7 @@ class Job:
     def __init__(self, tool, params):
         self.id = uuid.uuid4().hex[:12]
         self.tool, self.params = tool, params
-        self.status = "queued"   # queued, running, done, error
+        self.status = "queued"   # queued, running, done, error, stopped
         self.lines = []
         self.error = None
         self.analysis_id = None
@@ -142,20 +142,34 @@ class Runner:
         self.queue.put(job)
         return job
 
+    def stop(self, job_id):
+        """Ask a job to stop; it ends at its next request or wait."""
+        job = self.jobs[job_id]
+        if job.status == "queued":
+            job.status = "stopped"
+        elif job.status == "running":
+            STOP.set()
+
     def _work(self):
         while True:
             job = self.queue.get()
+            if job.status == "stopped":  # stopped before it started
+                continue
             job.status = "running"
             self.handler.job = job
+            STOP.clear()
             try:
                 _, data = run_tool(job.tool, job.params, self.cache_dir, self.cache_limit_mb,
                                    self.requests_per_minute)
                 job.analysis_id = self.store.save(job.tool, job.params, data)
                 job.status = "done"
+            except Cancelled:
+                job.status = "stopped"
             except Exception as e:  # shown to the user; the server keeps going
                 job.error = str(e) if isinstance(e, ValueError) else f"{type(e).__name__}: {e}"
                 job.status = "error"
             finally:
+                STOP.clear()
                 self.handler.job = None
 
 
@@ -230,6 +244,12 @@ def make_handler(store, runner):
                 except KeyError:
                     return self._send(404, {"error": "not found"})
                 return self._send(200, {"deleted": m[1]})
+            if m := re.fullmatch(r"/api/jobs/(\w+)", self._path()):
+                try:
+                    runner.stop(m[1])
+                except KeyError:
+                    return self._send(404, {"error": "not found"})
+                return self._send(200, {"stopping": m[1]})
             return self._send(404, {"error": "not found"})
 
         def _static(self, path):

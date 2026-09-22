@@ -113,7 +113,13 @@ summary { cursor: pointer; color: var(--muted); font-size: 14px; }
 .run:disabled { opacity: .5; cursor: default; }
 
 #progress { margin-top: 24px; }
-#progress h3 { font-size: 15px; margin: 0 0 6px; }
+.progress-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+#progress h3 { font-size: 15px; margin: 0; }
+#stop {
+  margin-left: 10px; border: 1px solid var(--border); background: var(--panel); color: var(--ink);
+  border-radius: 6px; padding: 3px 12px; font: inherit; font-size: 13px; cursor: pointer;
+}
+#stop:disabled { opacity: .5; cursor: default; }
 #progress-log {
   background: var(--code-bg); border-radius: 6px; padding: 10px 12px;
   max-height: 220px; overflow-y: auto; font-size: 13px; white-space: pre-wrap; margin: 0;

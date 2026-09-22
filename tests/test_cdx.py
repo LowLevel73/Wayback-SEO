@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from wayback_seo.cdx import Cache, target
 
 
@@ -67,3 +69,16 @@ def test_cache_limit_deletes_least_recently_used(tmp_path):
     assert all(cache.get(name, ".cdx")[0] for name in ("old", "new", "newest"))
     assert cache_size(str(tmp_path)) <= 0.9 * 1024 * 1024
     assert clear_cache(str(tmp_path)) > 0 and cache_size(str(tmp_path)) == 0
+
+
+def test_a_stopped_analysis_raises_at_the_next_wait():
+    from wayback_seo.util import STOP, Cancelled, pause, run_parallel
+
+    STOP.set()
+    try:
+        with pytest.raises(Cancelled):
+            pause(60)  # returns at once instead of waiting a minute
+        with pytest.raises(Cancelled):
+            run_parallel({"job": lambda: pause()}, max_workers=2)
+    finally:
+        STOP.clear()

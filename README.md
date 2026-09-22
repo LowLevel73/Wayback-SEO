@@ -37,6 +37,7 @@ The page opens in your browser. It has a tab for each of the three tools, which 
 - **New analysis** empties the forms to start a new analysis.
 - Each analysis has a **Download CSV** link.
 - In the migration check, clicking a category filters the table to the URLs in that category.
+- **Stop** ends a running analysis. It stops at the current request, and nothing is saved.
 
 The page runs one analysis at a time.
 
@@ -88,7 +89,7 @@ The migration check sends requests to the analysed site, so use it only on sites
 wayback-seo robots --site www.example.com
 ```
 
-The robots.txt history shows every change to a site's robots.txt over time, with the rules that each version added or removed.
+The robots.txt history shows every change to a site's robots.txt over time, with the rules that each version added or removed. The last entry is the robots.txt online today, which the tool downloads from the site itself, so a change the archive has not captured yet is visible too.
 
 It raises a warning when robots.txt:
 

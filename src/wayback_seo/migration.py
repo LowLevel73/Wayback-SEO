@@ -8,7 +8,6 @@ Googlebot may not crawl: an old URL or a redirect target that the host's live
 robots.txt disallows hides the redirect from Google.
 """
 import threading
-import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from http.client import HTTPConnection, HTTPException, HTTPSConnection
@@ -16,7 +15,7 @@ from urllib.parse import quote, urljoin, urlsplit
 
 from .cdx import FetchOptions, fetch_captures
 from .robotstxt import googlebot_rules, is_allowed, parse_groups
-from .util import log, parse_date, run_parallel
+from .util import log, parse_date, pause, run_parallel
 
 DEFAULT_MONTHS_BEFORE = 6        # how far back before the migration to collect working URLs
 DEFAULT_MARGIN_DAYS = 14         # days before the date to skip: migrations take a while and
@@ -142,7 +141,7 @@ def check_url(url, delay=DEFAULT_CHECK_DELAY):
     hops, current = [], url
     try:
         for _ in range(MAX_HOPS + 1):
-            time.sleep(delay)
+            pause(delay)
             status, location, _ = _request(current)
             hops.append((current, status))
             if not (300 <= status < 400 and location):
@@ -164,7 +163,7 @@ def _fetch_robots(url, delay):
     current = url
     try:
         for _ in range(ROBOTS_MAX_REDIRECTS + 1):
-            time.sleep(delay)
+            pause(delay)
             status, location, body = _request(current, read_body=True)
             if 300 <= status < 400 and location:
                 current = urljoin(current, location)

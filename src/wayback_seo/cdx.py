@@ -14,7 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .util import CACHE_DIR, cdx_date, log, run_parallel
+from .util import CACHE_DIR, cdx_date, log, pause, run_parallel
 
 CDX_BASE = "https://web.archive.org/cdx/search/cdx"
 RAW_CAPTURE = "https://web.archive.org/web/{timestamp}id_/{url}"
@@ -140,7 +140,7 @@ class Pacer:
         with self._lock:
             start = max(time.monotonic(), self._next_start)
             self._next_start = start + 60 / requests_per_minute
-        time.sleep(max(0.0, start - time.monotonic()))
+        pause(max(0.0, start - time.monotonic()))
 
     def pause(self, seconds):
         with self._lock:
@@ -202,7 +202,7 @@ def download(url, options, label):
         else:
             log.info("%s: %s; retry %d/%d in %ds", label, reason, attempt + 1, options.retries,
                      wait)
-            time.sleep(wait)
+            pause(wait)
 
 
 def _parse_rows(raw):

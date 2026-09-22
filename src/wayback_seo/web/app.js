@@ -33,6 +33,7 @@ const isoDay = (d) => d.toISOString().slice(0, 10);
 
 let currentTool = "down";
 let currentAnalysis = null;
+let runningJob = null;  // the analysis the Stop button would stop
 let shownTool = null;  // the tool whose progress and result are on the page
 let charts = [];
 
@@ -95,11 +96,16 @@ async function run(form) {
       body: JSON.stringify({ tool: form.dataset.tool, params }),
     });
     const { job } = await response.json();
+    runningJob = job;
+    $("#stop").hidden = false;
+    $("#stop").disabled = false;
     await follow(job);
   } catch (err) {
     showError(`Could not reach the server: ${err.message}`);
   } finally {
     $$(".run").forEach((b) => (b.disabled = false));
+    runningJob = null;
+    $("#stop").hidden = true;
   }
 }
 
@@ -120,6 +126,10 @@ async function follow(jobId) {
       await loadHistory();
       await openAnalysis(job.analysis);
       await loadCacheSize();
+      return;
+    }
+    if (job.status === "stopped") {
+      $("#progress-title").textContent = "Stopped. Nothing was saved.";
       return;
     }
     if (job.status === "error") return showError(job.error);
@@ -350,12 +360,13 @@ function renderRobots(record) {
       <div class="stats">${stat(history.archived, "archived versions")}${stat(history.versions.length - 1, "changes")}${stat(count(warnings), "warnings")}${stat(count(notices), "notices")}</div>
       ${history.versions.map((v, i) => `
         <div class="version ${warnings(v).length ? "has-warning" : notices(v).length ? "has-notice" : ""}">
-          <div class="version-date">${esc(v.date)}${i === 0 ? ` · ${history.skipped ? `oldest of the latest ${history.archived - history.skipped} versions` : "first archived version"}, ${v.rules} rules` : ""}
-            <a href="${esc(v.capture)}" target="_blank" rel="noopener">archived file</a></div>
+          <div class="version-date">${esc(v.date)}${v.live ? " · live robots.txt" : i === 0 ? ` · ${history.skipped ? `oldest of the latest ${history.archived - history.skipped} versions` : "first archived version"}, ${v.rules} rules` : ""}
+            <a href="${esc(v.capture)}" target="_blank" rel="noopener">${v.live ? "live file" : "archived file"}</a></div>
           ${warnings(v).map((a) => `<div class="warning">${esc(a)}</div>`).join("")}
           ${notices(v).map((a) => `<div class="notice">${esc(a)}</div>`).join("")}
           ${i === 0 ? "" : rules(v)}
         </div>`).join("")}
+      ${history.live_unchanged ? `<p class="hint">The robots.txt online today is the same as the latest version above.</p>` : ""}
       ${history.failed ? `<p class="error">${history.failed} versions could not be downloaded.</p>` : ""}`;
   }).join("");
 }
@@ -381,6 +392,12 @@ $("#history-list").addEventListener("click", (e) => {
   else openAnalysis(li.dataset.id);
 });
 $("#cache-clear").addEventListener("click", clearCache);
+$("#stop").addEventListener("click", async () => {
+  if (!runningJob) return;
+  $("#stop").disabled = true;
+  $("#progress-title").textContent = "Stopping after the current request…";
+  await fetch(`api/jobs/${runningJob}`, { method: "DELETE" });
+});
 $("#new-analysis").addEventListener("click", newAnalysis);
 $("#theme").addEventListener("click", () =>
   applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
