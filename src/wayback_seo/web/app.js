@@ -27,6 +27,8 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const sameOrigin = (a, b) => { try { return new URL(a).origin === new URL(b).origin; } catch { return false; } };
+const pathOf = (url) => { const u = new URL(url); return u.pathname + u.search; };
 const isoDay = (d) => d.toISOString().slice(0, 10);
 
 let currentTool = "down";
@@ -308,8 +310,11 @@ function renderMigration(record) {
     const shown = (c) => !category || (category === ROBOTS_FILTER ? !!c.blocked_url : c.category === category);
     $("#checks").innerHTML = data.checks.filter(shown).map((c) => {
       const final = c.hops.length ? c.hops[c.hops.length - 1] : null;
-      const chain = c.hops.length > 1
-        ? `<div class="chain">${c.hops.map(([url, status]) => `${esc(status)} ${esc(url)}`).join(" → ")}</div>` : "";
+      // one line per redirect: its status, then where it leads
+      const chain = c.hops.slice(1).map(([url], i) => {
+        const [from, status] = c.hops[i];
+        return `<div class="chain">${esc(status)} → ${esc(sameOrigin(from, url) ? pathOf(url) : url)}</div>`;
+      }).join("");
       const blockedUrl = c.blocked_url
         ? `<div class="chain blocked">Disallowed by robots.txt${c.blocked_url === c.url ? "" : `: ${esc(c.blocked_url)}`}</div>` : "";
       return `<tr><td class="url">${esc(c.url)}${chain}${c.problem ? `<div class="chain">${esc(c.problem)}</div>` : ""}${blockedUrl}</td>
