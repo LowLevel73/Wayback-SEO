@@ -28,11 +28,11 @@ def load(path=CONFIG_FILE):
     if not path.exists():
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(TEMPLATE)
+            path.write_text(TEMPLATE, encoding="utf-8")
         except OSError:
             return dict(DEFAULTS)  # read-only home: run on the defaults
     try:
-        values = tomllib.loads(path.read_text())
+        values = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as e:
         raise ValueError(f"{path}: {e}") from None
     settings = dict(DEFAULTS)

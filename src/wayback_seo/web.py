@@ -76,7 +76,7 @@ class Store:
         analysis_id = f"{created:%Y%m%d-%H%M%S}-{tool}-{uuid.uuid4().hex[:6]}"
         record = {"id": analysis_id, "tool": tool, "created": created.isoformat(timespec="seconds"),
                   "params": params, "result": data}
-        self._path(analysis_id).write_text(json.dumps(record))
+        self._path(analysis_id).write_text(json.dumps(record), encoding="utf-8")
         return analysis_id
 
     def list(self):
@@ -84,7 +84,7 @@ class Store:
         items = []
         for path in sorted(self.directory.glob("*.json"), reverse=True):
             try:
-                record = json.loads(path.read_text())
+                record = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
             items.append({key: record[key] for key in ("id", "tool", "created", "params")})
@@ -94,7 +94,7 @@ class Store:
         path = self._path(analysis_id)
         if not path.exists():
             raise KeyError(analysis_id)
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
 
     def delete(self, analysis_id):
         self._path(analysis_id).unlink(missing_ok=True)

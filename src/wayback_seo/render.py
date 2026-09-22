@@ -19,7 +19,7 @@ def to_data(result):
 
 
 def write_json(result, path):
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(to_data(result), f, indent=2)
 
 
@@ -66,7 +66,7 @@ def write_csv(tool, data, file):
 
 
 def save_csv(tool, result, path):
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding="utf-8") as f:
         write_csv(tool, to_data(result), f)
 
 
