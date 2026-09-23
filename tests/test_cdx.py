@@ -82,3 +82,16 @@ def test_a_stopped_analysis_raises_at_the_next_wait():
             run_parallel({"job": lambda: pause()}, max_workers=2)
     finally:
         STOP.clear()
+
+
+def test_a_damaged_saved_copy_is_downloaded_again(tmp_path, monkeypatch):
+    from wayback_seo import cdx
+
+    options = cdx.FetchOptions(cache_dir=str(tmp_path))
+    url = "https://web.archive.org/cdx?x"
+    good = b"20250101000000 https://x.it/ 200\n"
+    cdx.Cache(str(tmp_path)).put(url, ".cdx", b"20250101000000 https://x.it/ 2")  # cut short
+    monkeypatch.setattr(cdx, "download", lambda *args: good)
+    rows, cached_on = cdx.get_rows(url, options, "test")
+    assert rows == [["20250101000000", "https://x.it/", "200"]] and cached_on is None
+    assert cdx.Cache(str(tmp_path)).get(url, ".cdx")[0] == good  # the damaged copy is replaced

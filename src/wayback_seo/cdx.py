@@ -83,7 +83,7 @@ class Cache:
             return
         os.makedirs(self.directory, exist_ok=True)
         path = self._path(url, suffix)
-        tmp = f"{path}.{threading.get_ident()}.tmp"
+        tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
         with open(tmp, "wb") as f:
             f.write(raw)
         os.replace(tmp, path)  # atomic, so an interrupted run never leaves half a file
@@ -230,8 +230,13 @@ def get_rows(url, options, label, parse=_parse_rows):
     if not options.refresh:
         raw, cached_on = cache.get(url, ".cdx")
         if raw is not None:
-            log.debug("%s: from cache (downloaded %s)", label, cached_on)
-            return parse(raw), cached_on
+            try:
+                rows = parse(raw)
+            except ValueError:  # a damaged saved copy: download it again and replace it
+                log.info("%s: the saved copy is damaged; downloading it again", label)
+            else:
+                log.debug("%s: from cache (downloaded %s)", label, cached_on)
+                return rows, cached_on
     for attempt in range(options.retries + 1):
         raw = download(url, options, label)
         try:
