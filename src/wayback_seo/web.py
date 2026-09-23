@@ -67,8 +67,7 @@ class Store:
     """
     Finished analyses, one file each: a first line with the parameters and when
     the analysis ran, then the result, which can be large. The list of analyses
-    reads only the first line. Files written before this split hold the whole
-    record on their first line, and still open.
+    reads only the first line.
     """
 
     def __init__(self, directory):
@@ -105,11 +104,9 @@ class Store:
         try:
             with self._path(analysis_id).open(encoding="utf-8") as f:
                 record = json.loads(f.readline())
-                result = f.read()
-        except FileNotFoundError:
-            raise KeyError(analysis_id) from None
-        if result.strip():
-            record["result"] = json.loads(result)
+                record["result"] = json.loads(f.read())
+        except (FileNotFoundError, ValueError, TypeError):
+            raise KeyError(analysis_id) from None  # missing or damaged: the same to the page
         return record
 
     def delete(self, analysis_id):

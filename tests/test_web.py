@@ -98,19 +98,14 @@ def test_an_incomplete_analysis_file_does_not_hide_the_others(server):
     assert status == 200 and [item["id"] for item in items] == [good]
 
 
+def test_a_damaged_analysis_file_is_reported_as_missing(server):
+    port, store, tmp_path = server
+    store.save("down", {"sites": "www.x.it"}, DOWN_DATA)
+    (tmp_path / "analyses" / "20260101-000000-down-broken.json").write_text(
+        "{not json at all}", encoding="utf-8")
+    assert request(port, "GET", "/api/analyses/20260101-000000-down-broken")[0] == 404
+
+
 def test_deleting_an_analysis_that_is_not_there_is_reported(server):
     port, _, _ = server
     assert request(port, "DELETE", "/api/analyses/20260101-000000-down-abcdef")[0] == 404
-
-
-def test_analyses_saved_before_the_file_was_split_still_open(server):
-    port, _, tmp_path = server
-    record = {"id": "20260101-000000-down-oldfmt", "tool": "down",
-              "created": "2026-01-01T00:00:00", "params": {"sites": "www.x.it"},
-              "result": DOWN_DATA}
-    (tmp_path / "analyses").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "analyses" / f"{record['id']}.json").write_text(json.dumps(record),
-                                                                encoding="utf-8")
-    assert [i["id"] for i in get_json(port, "/api/analyses")[1]] == [record["id"]]
-    status, got = get_json(port, f"/api/analyses/{record['id']}")
-    assert status == 200 and got["result"] == DOWN_DATA
