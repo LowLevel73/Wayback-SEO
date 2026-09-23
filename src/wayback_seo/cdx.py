@@ -24,6 +24,8 @@ FIELDS = "timestamp,original,statuscode"
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 NETWORK_ERRORS = (URLError, TimeoutError, ConnectionError, http.client.HTTPException)
 BACKOFF_BASE = 5                 # seconds; doubles on each retry
+PLAYBACK_FACTOR = 2              # archived files may be downloaded this many times faster
+                                 # than the CDX API is queried
 MAX_WAIT = 300                   # cap on any single wait, including Retry-After
 
 
@@ -35,7 +37,8 @@ class FetchOptions:
                                  # to 41 requests
     max_workers: int = 3         # parallel requests
     requests_per_minute: int = 30  # IA's limit for the CDX API (per the EDGI wayback library);
-                                   # going over it leads to 429s, then a firewall block
+                                   # going over it leads to 429s, then a firewall block.
+                                   # Archived files are downloaded PLAYBACK_FACTOR times faster
     retries: int = 5             # extra attempts on 429/5xx, network errors and cut-off bodies
     cache_dir: str | None = CACHE_DIR  # responses saved here and reused by later runs,
                                        # so a rerun resumes and can run offline; None = no cache
@@ -126,10 +129,8 @@ def clear_cache(directory):
 
 class Pacer:
     """
-    Paces every request to the Wayback Machine across all threads: starts are
-    spaced to stay under a requests-per-minute limit, and a "slow down"
-    signal (429, or a refused connection when IA's firewall blocks us) pauses
-    all threads, not just the one that received it.
+    Paces the requests to one endpoint of the Wayback Machine across all
+    threads: starts are spaced to stay under a requests-per-minute limit.
     """
 
     def __init__(self):
@@ -147,7 +148,27 @@ class Pacer:
             self._next_start = max(self._next_start, time.monotonic() + seconds)
 
 
-PACER = Pacer()  # one per process: IA counts requests per client, not per call
+# One pacer per endpoint, because their limits differ: the CDX API, which lists
+# captures, allows far fewer requests per minute than the playback of archived
+# files. One set per process, since IA counts requests per client.
+PACERS = {"cdx": Pacer(), "playback": Pacer()}
+
+
+def _pacing(url, options):
+    """(the pacer for this URL, its requests per minute)."""
+    if url.startswith(CDX_BASE):
+        return PACERS["cdx"], options.requests_per_minute
+    return PACERS["playback"], options.requests_per_minute * PLAYBACK_FACTOR
+
+
+def pause_everything(seconds):
+    """
+    Hold back every request for a while. A "slow down" signal (a 429, or a
+    refused connection when IA's firewall blocks us) is about the client, so it
+    stops the threads of both endpoints, not only the one that received it.
+    """
+    for pacer in PACERS.values():
+        pacer.pause(seconds)
 
 
 def _download(url, timeout):
@@ -181,8 +202,9 @@ def download(url, options, label):
     _download() through the shared pacer, retrying 429/5xx and network errors
     with exponential backoff. A slow-down signal pauses every thread.
     """
+    pacer, requests_per_minute = _pacing(url, options)
     for attempt in range(options.retries + 1):
-        PACER.wait(options.requests_per_minute)
+        pacer.wait(requests_per_minute)
         try:
             return _download(url, options.timeout)
         except HTTPError as e:
@@ -196,7 +218,7 @@ def download(url, options, label):
             error, wait, reason = e, BACKOFF_BASE * 2 ** attempt, f"{type(e).__name__}: {e}"
         wait = min(wait, MAX_WAIT)
         if _is_slow_down(error):
-            PACER.pause(wait)
+            pause_everything(wait)
             log.warning("%s: the Wayback Machine asks to slow down (%s); pausing all requests "
                         "for %ds", label, reason, wait)
         else:

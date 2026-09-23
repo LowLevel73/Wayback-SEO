@@ -95,3 +95,31 @@ def test_a_damaged_saved_copy_is_downloaded_again(tmp_path, monkeypatch):
     rows, cached_on = cdx.get_rows(url, options, "test")
     assert rows == [["20250101000000", "https://x.it/", "200"]] and cached_on is None
     assert cdx.Cache(str(tmp_path)).get(url, ".cdx")[0] == good  # the damaged copy is replaced
+
+
+def test_the_two_endpoints_are_paced_apart_but_stop_together():
+    import threading
+    import time
+    from wayback_seo.cdx import (CDX_BASE, PACERS, PLAYBACK_FACTOR, FetchOptions, _pacing,
+                                 pause_everything)
+
+    options = FetchOptions(requests_per_minute=30)
+    assert _pacing(f"{CDX_BASE}?url=x", options) == (PACERS["cdx"], 30)
+    assert _pacing("https://web.archive.org/web/2025id_/http://x.it/robots.txt", options) == \
+        (PACERS["playback"], 30 * PLAYBACK_FACTOR)
+
+    waited = {}
+
+    def wait(name, pacer):
+        started = time.monotonic()
+        pacer.wait(requests_per_minute=600)
+        waited[name] = time.monotonic() - started
+
+    pause_everything(0.2)  # a slow-down signal holds back both endpoints, so both wait
+    threads = [threading.Thread(target=wait, args=(name, pacer))
+               for name, pacer in PACERS.items()]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert min(waited.values()) >= 0.19
