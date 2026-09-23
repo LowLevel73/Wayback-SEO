@@ -64,7 +64,12 @@ def run_tool(tool, params, cache_dir, cache_limit_mb,
 
 
 class Store:
-    """Finished analyses, one JSON file each: parameters, result and when it ran."""
+    """
+    Finished analyses, one file each: a first line with the parameters and when
+    the analysis ran, then the result, which can be large. The list of analyses
+    reads only the first line. Files written before this split hold the whole
+    record on their first line, and still open.
+    """
 
     def __init__(self, directory):
         self.directory = Path(directory)
@@ -78,9 +83,10 @@ class Store:
         self.directory.mkdir(parents=True, exist_ok=True)
         created = datetime.now()
         analysis_id = f"{created:%Y%m%d-%H%M%S}-{tool}-{uuid.uuid4().hex[:6]}"
-        record = {"id": analysis_id, "tool": tool, "created": created.isoformat(timespec="seconds"),
-                  "params": params, "result": data}
-        self._path(analysis_id).write_text(json.dumps(record), encoding="utf-8")
+        header = {"id": analysis_id, "tool": tool,
+                  "created": created.isoformat(timespec="seconds"), "params": params}
+        self._path(analysis_id).write_text(f"{json.dumps(header)}\n{json.dumps(data)}",
+                                           encoding="utf-8")
         return analysis_id
 
     def list(self):
@@ -88,20 +94,29 @@ class Store:
         items = []
         for path in sorted(self.directory.glob("*.json"), reverse=True):
             try:
-                record = json.loads(path.read_text(encoding="utf-8"))
+                with path.open(encoding="utf-8") as f:
+                    record = json.loads(f.readline())
                 items.append({key: record[key] for key in ("id", "tool", "created", "params")})
             except (OSError, ValueError, KeyError, TypeError):
                 continue  # unreadable or incomplete: skip it, keep the others
         return items
 
     def get(self, analysis_id):
-        path = self._path(analysis_id)
-        if not path.exists():
-            raise KeyError(analysis_id)
-        return json.loads(path.read_text(encoding="utf-8"))
+        try:
+            with self._path(analysis_id).open(encoding="utf-8") as f:
+                record = json.loads(f.readline())
+                result = f.read()
+        except FileNotFoundError:
+            raise KeyError(analysis_id) from None
+        if result.strip():
+            record["result"] = json.loads(result)
+        return record
 
     def delete(self, analysis_id):
-        self._path(analysis_id).unlink(missing_ok=True)
+        try:
+            self._path(analysis_id).unlink()
+        except FileNotFoundError:
+            raise KeyError(analysis_id) from None
 
 
 class Job:

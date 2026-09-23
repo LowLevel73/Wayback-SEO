@@ -89,7 +89,7 @@ async function run(form) {
   $("#progress").hidden = false;
   $("#progress-title").textContent = `Running: ${TOOL_NAMES[form.dataset.tool]}…`;
   $("#progress-log").textContent = "";
-  $("#result").innerHTML = "";
+  showResult("");
   try {
     const response = await fetch("api/jobs", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -204,7 +204,7 @@ function newAnalysis() {
   $$("#history-list li").forEach((li) => li.classList.remove("active"));
   if ($(".run").disabled) return;
   shownTool = null;
-  $("#result").innerHTML = "";
+  showResult("");
   $("#progress-log").textContent = "";
   showTool(currentTool);
 }
@@ -214,7 +214,7 @@ async function deleteAnalysis(id) {
   await fetch(`api/analyses/${id}`, { method: "DELETE" });
   if (id === currentAnalysis) {
     currentAnalysis = null;
-    $("#result").innerHTML = "";
+    showResult("");
     resetForm(shownTool);
     shownTool = null;
     history.replaceState(null, "", location.pathname);
@@ -232,6 +232,13 @@ function header(record, title) {
 
 const stat = (value, label) => `<div class="stat"><b>${esc(value)}</b><span>${esc(label)}</span></div>`;
 
+// Every result replaces the previous one, whose charts have to be disposed of.
+function showResult(html) {
+  charts.forEach((c) => c.destroy());
+  charts = [];
+  $("#result").innerHTML = html;
+}
+
 // ---------- down detector ----------
 
 function renderDown(record) {
@@ -242,7 +249,7 @@ function renderDown(record) {
   const captures = weeks.reduce((n, w) => n + w.captures, 0);
   const incomplete = data.missing.length
     ? `<p class="error">Incomplete: ${data.missing.length} pages failed to download. Run again to download only those.</p>` : "";
-  $("#result").innerHTML = header(record, "Down detector") + incomplete + `
+  showResult(header(record, "Down detector") + incomplete + `
     <div class="stats">${stat(downs, "down events")}${stat(recoveries, "recovery events")}${stat(captures, "captures")}</div>
     <p class="chart-title">Down and recovery events per week</p>
     <p class="chart-note">Down: a URL went from 200 to an error. Recovery: from an error back to 200.</p>
@@ -255,7 +262,7 @@ function renderDown(record) {
       ${data.events.map((e) => `<tr><td>${esc(e.time.replace("T", " "))}</td>
         <td><span class="badge ${e.kind === "down" ? "bad" : "good"}">${esc(e.kind)}</span></td>
         <td>${esc(e.status)}</td><td class="url">${esc(e.url)}</td></tr>`).join("")}
-    </tbody></table></div>`;
+    </tbody></table></div>`);
 
   const labels = weeks.map((w) => w.start);
   const title = (items) => {
@@ -267,7 +274,6 @@ function renderDown(record) {
                       grid: { color: (c) => (c.tick.value === 0 ? css("--ink") : css("--border")),
                               lineWidth: (c) => (c.tick.value === 0 ? 1.5 : 1) } } };
   Chart.defaults.color = css("--muted");
-  charts.forEach((c) => c.destroy());
   charts = [
     new Chart($("#events-chart"), {
       type: "bar",
@@ -307,7 +313,7 @@ function renderMigration(record) {
         <span class="badge ${tone}">${esc(label)}</span><br>
         <b>${n}</b><span class="pct">${(100 * n / total).toFixed(1)}%</span>
         <p>${esc(meaning)}</p></div>`;
-  $("#result").innerHTML = header(record, "Migration check") + `
+  showResult(header(record, "Migration check") + `
     <p class="result-meta">${total} URLs checked${note}: they worked between ${esc(data.start)} and ${esc(data.end)}.
       Click a category to filter the table.</p>
     <div class="categories">${categories.map((c) =>
@@ -316,7 +322,7 @@ function renderMigration(record) {
           "robots.txt blocks the URL or its redirect for Googlebot") : ""}</div>
     ${unknown.length ? `<p class="hint">The robots.txt of ${esc(unknown.join(", "))} never answered, so what Google may crawl there is unknown.</p>` : ""}
     <div class="table-wrap"><table><thead><tr><th>Old URL</th><th>Result</th><th>Final status</th></tr></thead>
-      <tbody id="checks"></tbody></table></div>`;
+      <tbody id="checks"></tbody></table></div>`);
 
   const fill = (category) => {
     const shown = (c) => !category || (category === ROBOTS_FILTER ? !!c.blocked_url : c.category === category);
@@ -356,10 +362,10 @@ function renderRobots(record) {
     const n = v.added.length + v.removed.length;
     return n > COLLAPSE_OVER ? `<details class="rules"><summary>${n} rule changes</summary>${lines}</details>` : lines;
   };
-  $("#result").innerHTML = header(record, "robots.txt history") + record.result.map((history) => {
+  showResult(header(record, "robots.txt history") + record.result.map((history) => {
     const count = (list) => history.versions.reduce((n, v) => n + list(v).length, 0);
     return `<h3>${esc(history.robots_url)}</h3>
-      <div class="stats">${stat(history.archived, "archived versions")}${stat(history.versions.length - 1, "changes")}${stat(count(warnings), "warnings")}${stat(count(notices), "notices")}</div>
+      <div class="stats">${stat(history.archived, "archived versions")}${stat(Math.max(history.versions.length - 1, 0), "changes")}${stat(count(warnings), "warnings")}${stat(count(notices), "notices")}</div>
       ${history.versions.map((v, i) => `
         <div class="version ${warnings(v).length ? "has-warning" : notices(v).length ? "has-notice" : ""}">
           <div class="version-date">${esc(v.date)}${v.live ? " · live robots.txt" : i === 0 ? ` · ${history.skipped ? `oldest of the latest ${history.archived - history.skipped} versions` : "first archived version"}, ${v.rules} rules` : ""}
@@ -370,7 +376,7 @@ function renderRobots(record) {
         </div>`).join("")}
       ${history.live_unchanged ? `<p class="hint">The robots.txt online today is the same as the latest version above.</p>` : ""}
       ${history.failed ? `<p class="error">${history.failed} versions could not be downloaded.</p>` : ""}`;
-  }).join("");
+  }).join(""));
 }
 
 // ---------- theme: light by default, the choice remembered in this browser ----------
