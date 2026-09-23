@@ -1,6 +1,6 @@
 # Wayback SEO
 
-Wayback SEO finds the technical problems of a website's past in the archive of the Wayback Machine. It shows the weeks when the site's pages returned errors, the URLs that a migration broke, and the changes to its robots.txt that stopped Google from crawling it. It has three tools, one for each of those questions, and you can run them from the command line or from a web page.
+Wayback SEO finds the technical problems of a website's past in the archive of the Wayback Machine. It shows the weeks when the site's pages returned errors, the URLs that a migration broke, and the changes to its robots.txt that stopped Google from crawling it. It has three tools, one for each of them, and you can run them from the command line or from a web page.
 
 ## Install
 
@@ -31,7 +31,7 @@ Then delete the folder `~/.wayback-seo`, which holds the saved analyses, the cac
 wayback-seo web
 ```
 
-The page opens in your browser. It has a tab for each of the three tools, which work as described under [Command line](#command-line). The page adds these features:
+The page opens in your browser. It has a tab for each of the three tools. They do the same as the commands described under [Command line](#command-line). The page adds these features:
 
 - Every analysis is saved in the left column. Click it to open it again without downloading anything.
 - **New analysis** empties the forms to start a new analysis.
@@ -79,7 +79,7 @@ The migration check finds the URLs that stopped working after a migration. You g
 | redirected | Redirects permanently to a working page. |
 | still works | Returns 200. |
 
-The check takes at most 1000 URLs; `--max-urls` changes that number. It also reports the URLs that robots.txt blocks for Googlebot. The results are saved in `migration_check.csv`.
+The check looks at 1000 URLs at most; `--max-urls` changes that number. It also reports the URLs that robots.txt blocks for Googlebot. The results are saved in `migration_check.csv`.
 
 The migration check sends requests to the analysed site, so use it only on sites you are allowed to audit.
 
@@ -89,7 +89,7 @@ The migration check sends requests to the analysed site, so use it only on sites
 wayback-seo robots --site www.example.com
 ```
 
-The robots.txt history shows every change to a site's robots.txt over time, with the rules that each version added or removed. The last entry is the robots.txt online today, which the tool downloads from the site itself, so a change the archive has not captured yet is visible too.
+The robots.txt history shows every change to a site's robots.txt over time, with the rules that each version added or removed. The last entry is the file online today, taken from the site itself, so you also see the changes the archive has not captured yet.
 
 It raises a warning when robots.txt:
 
@@ -99,11 +99,11 @@ It raises a warning when robots.txt:
 
 It raises a notice when robots.txt:
 
-- returns 404, 410 or another status that allows crawling of every URL;
+- returns 404, 410 or another status that crawlers read as "there is no robots.txt", so every URL may be crawled;
 - returns an HTML page;
 - lifts a whole-site block.
 
-The tool downloads the latest 200 archived versions; `--max-versions` changes that number.
+The tool downloads the 200 most recent archived versions; `--max-versions` changes that number.
 
 The results are saved in `robots_history.csv`.
 
@@ -125,7 +125,7 @@ The tool saves its data in `~/.wayback-seo/`:
 - `cache/`: the responses downloaded from the Wayback Machine;
 - `config.toml`: the settings.
 
-A request that was already made is answered from the cache, and the tool shows the date of the download. The cache keeps at most 100 MB and deletes the least recently used data first.
+If a request was already made, the tool answers from the cache and says when it downloaded the data. The cache keeps at most 100 MB and deletes the least recently used data first.
 
 ## Settings
 
@@ -151,7 +151,7 @@ uv run ruff check
 - The Wayback Machine only has the pages its crawler captured. For rarely captured sites the results are incomplete.
 - The archive's API is slow for very large sites.
 - The tool reads robots.txt as Google does. Other search engines can interpret some rules differently.
-- Antivirus software that inspects HTTPS traffic can refuse the tool's connections to the Wayback Machine.
+- Antivirus software that inspects HTTPS traffic can block the tool's connections to the Wayback Machine.
 
 ## Credits
 

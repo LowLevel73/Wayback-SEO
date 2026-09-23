@@ -32,7 +32,7 @@ def test_down_summary():
     assert "www.x.it, 2025-01-01 to 2025-01-31" in text
     assert "9 captures, 1 down and 0 recovery events" in text
     assert "week of 2025-01-06: 1 down, 1 recovery" in text
-    assert "INCOMPLETE: 1 pages failed to download" in text
+    assert "INCOMPLETE: 1 request to the archive failed" in text
 
 
 def test_migration_summary():

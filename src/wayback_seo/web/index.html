@@ -24,7 +24,7 @@
     <header>
       <div>
         <h1>Wayback SEO</h1>
-        <p class="subtitle">Wayback SEO uses the Wayback Machine to find problems in a website's past.</p>
+        <p class="subtitle">Wayback SEO finds the technical problems of a website's past in the archive of the Wayback Machine.</p>
       </div>
       <button id="theme" type="button">Dark</button>
     </header>
@@ -36,7 +36,7 @@
     </nav>
 
     <form data-tool="down" class="tool-form">
-      <p class="intro">The down detector shows the weeks in which URLs stopped working (from 200 to an error) and started working again. When a site is completely unreachable, the archive saves nothing, so a week with far fewer captures than usual can also mean an outage.</p>
+      <p class="intro">The down detector shows, week by week, how many URLs stopped working (from 200 to an error) and how many started working again. When a site is completely unreachable, the archive saves nothing, so a week with far fewer captures than usual can also mean an outage.</p>
       <label>Sites <textarea name="sites" rows="3" placeholder="www.example.com&#10;www.example.com/shop/&#10;*.example.com" required></textarea></label>
       <div class="row">
         <label>From <input type="date" name="date_from"></label>
@@ -64,7 +64,7 @@
         <div class="row">
           <label>Months before the date <input type="number" name="months_before" value="6" min="1" step="1"></label>
           <label>Days skipped before the date <input type="number" name="margin_days" value="14" min="0"></label>
-          <label>Most URLs to check <input type="number" name="max_urls" value="1000" min="1"></label>
+          <label>Maximum number of URLs to check <input type="number" name="max_urls" value="1000" min="1"></label>
         </div>
         <label class="check"><input type="checkbox" name="include_query"> Also check URLs with a query string</label>
         <label class="check"><input type="checkbox" name="refresh"> Get fresh data from the Wayback Machine</label>
@@ -80,7 +80,7 @@
         <div class="row">
           <label>From <input type="date" name="date_from"></label>
           <label>To <input type="date" name="date_to"></label>
-          <label>Most versions to download <input type="number" name="max_versions" value="200" min="1"></label>
+          <label>Maximum number of versions to download <input type="number" name="max_versions" value="200" min="1"></label>
         </div>
         <label class="check"><input type="checkbox" name="refresh"> Get fresh data from the Wayback Machine</label>
       </details>

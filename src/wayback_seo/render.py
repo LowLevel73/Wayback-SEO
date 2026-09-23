@@ -73,7 +73,10 @@ def save_csv(tool, result, path):
 # --- down -------------------------------------------------------------------
 
 def _incomplete(missing):
-    return f"INCOMPLETE: {len(missing)} pages failed to download" if missing else None
+    if not missing:
+        return None
+    requests = f"{len(missing)} request" + ("" if len(missing) == 1 else "s")
+    return f"INCOMPLETE: {requests} to the archive failed"
 
 
 def down_summary(result):
@@ -115,7 +118,7 @@ def down_chart(result, path):
     if not any(downs) and not any(recoveries):
         ax.text(0.5, 0.5, "No down or recovery events in this period", transform=ax.transAxes,
                 ha="center", va="center", color="#6b6b69")
-    title = f"Wayback Machine crawl-observed availability transitions — {', '.join(result.sites)}"
+    title = f"Pages that stopped and started working, week by week — {', '.join(result.sites)}"
     note = _incomplete(result.missing)
     ax.set_title(f"{title}\n{note}" if note else title)
     ax.set_ylabel("Events per week")
@@ -167,8 +170,8 @@ def migration_summary(result):
         lines.append(f"  ({other_host} of the redirects lead to a different host)")
     blocked = [c for c in checks if c.blocked_url]
     if blocked:
-        lines.append(f"  {len(blocked)} old URLs lead to a URL that robots.txt disallows for "
-                     "Googlebot (the old URL or a redirect target), which Google cannot crawl:")
+        lines.append(f"  {len(blocked)} old URLs end on a URL that robots.txt disallows for "
+                     "Googlebot, so Google cannot crawl them:")
         lines += [f"          e.g. {c.url} (blocked: {c.blocked_url})" for c in blocked[:3]]
     if result.robots_unknown:
         lines.append(f"  the robots.txt of {', '.join(result.robots_unknown)} never answered, "

@@ -8,15 +8,15 @@ const CATEGORY_TONE = {
   "redirected": "good", "still works": "good",
 };
 const CATEGORY_MEANING = {
-  "not redirected": "now returns 404/410: it was not redirected",
+  "not redirected": "old URL now returns 404/410: it was not redirected",
   "redirect to error": "redirects, but the final page returns an error",
-  "error": "now returns another error status",
+  "error": "old URL now returns another error status",
   "failed": "no usable answer: timeout, connection error or redirect loop",
   "to homepage": "redirects to a homepage instead of an equivalent page",
   "temporary redirect": "reaches a working page, but through a 302/303/307",
   "redirect chain": "reaches a working page through 2 or more redirects",
   "redirected": "redirects permanently to a working page, as expected",
-  "still works": "same URL still answers 200",
+  "still works": "the same URL still answers 200",
 };
 
 const COLLAPSE_OVER = 10;  // robots.txt versions with more rule changes start collapsed
@@ -248,7 +248,7 @@ function renderDown(record) {
   const recoveries = weeks.reduce((n, w) => n + w.recovery, 0);
   const captures = weeks.reduce((n, w) => n + w.captures, 0);
   const incomplete = data.missing.length
-    ? `<p class="error">Incomplete: ${data.missing.length} pages failed to download. Run again to download only those.</p>` : "";
+    ? `<p class="error">Incomplete: ${data.missing.length} request${data.missing.length === 1 ? "" : "s"} to the archive failed. Run again to download only those.</p>` : "";
   showResult(header(record, "Down detector") + incomplete + `
     <div class="stats">${stat(downs, "down events")}${stat(recoveries, "recovery events")}${stat(captures, "captures")}</div>
     <p class="chart-title">Down and recovery events per week</p>

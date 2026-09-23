@@ -37,7 +37,7 @@ CATEGORIES = {
     "temporary redirect": "reaches a working page, but through a 302/303/307",
     "redirect chain": "reaches a working page through 2 or more redirects",
     "redirected": "redirects permanently to a working page, as expected",
-    "still works": "same URL still answers 200",
+    "still works": "the same URL still answers 200",
 }
 
 
@@ -60,7 +60,7 @@ class MigrationResult:
     end: date
     old_urls: int                # URLs that worked in the window
     checks: list = field(default_factory=list)
-    missing: list = field(default_factory=list)  # pages that failed to download
+    missing: list = field(default_factory=list)  # requests to the archive that failed
     robots_unknown: list = field(default_factory=list)  # hosts whose robots.txt never answered
 
 

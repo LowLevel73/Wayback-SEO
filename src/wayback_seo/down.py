@@ -41,7 +41,7 @@ class DownResult:
     down_statuses: str
     weeks: list = field(default_factory=list)    # every week of the period, empty ones too
     events: list = field(default_factory=list)
-    missing: list = field(default_factory=list)  # pages that failed to download
+    missing: list = field(default_factory=list)  # requests to the archive that failed
 
 
 def parse_statuses(spec):

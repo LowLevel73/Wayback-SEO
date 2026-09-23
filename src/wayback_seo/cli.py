@@ -2,7 +2,7 @@
 Wayback SEO: what the Wayback Machine's captures reveal about a website.
 
   wayback-seo down --site www.example.com
-      Weekly down/recovery events and captures, from archived HTTP statuses.
+      The weeks in which the site's URLs stopped or started working.
 
   wayback-seo migration --site www.example.com --date 2025-11-17
       URLs that worked before a migration, checked on the live site today.
@@ -14,7 +14,7 @@ Wayback SEO: what the Wayback Machine's captures reveal about a website.
       The same tools in a web page, opened in your browser.
 
   wayback-seo cache [--clear]
-      How much space the saved downloads take, or delete them.
+      Show the space the saved downloads take, or delete them.
 
 Dates can be written 2025-11-17 or 20251117.
 """
@@ -43,10 +43,10 @@ def _common_options(settings):
                    help=f"Parallel requests to the Wayback Machine. "
                         f"Default: {DEFAULTS.max_workers}")
     p.add_argument("--page-size", type=int, default=DEFAULTS.page_size,
-                   help=f"CDX pageSize; larger means fewer, bigger requests. "
+                   help=f"Captures asked for in one request; larger means fewer, bigger requests. "
                         f"Default: {DEFAULTS.page_size}")
     p.add_argument("--requests-per-minute", type=int, default=settings["requests_per_minute"],
-                   help=f"Most requests per minute to the Wayback Machine, which blocks "
+                   help=f"Maximum requests per minute to the Wayback Machine, which blocks "
                         f"clients that exceed 30. Default: "
                         f"{settings['requests_per_minute']}, set in {CONFIG_FILE}")
     p.add_argument("--retries", type=int, default=DEFAULTS.retries,
@@ -60,7 +60,7 @@ def _common_options(settings):
     p.add_argument("--no-cache", dest="cache_dir", action="store_const", const=None,
                    help="Don't read or write the cache at all.")
     p.add_argument("--cache-limit", type=int, default=settings["cache_limit_mb"], metavar="MB",
-                   help=f"Largest size of the cache; past it, the least recently used data is "
+                   help=f"Maximum size of the cache; above it, the least recently used data is "
                         f"deleted. Default: {settings['cache_limit_mb']} MB, set in {CONFIG_FILE}")
     p.add_argument("--verbose", action="store_true", help="Show every request.")
     return p
@@ -75,7 +75,8 @@ def _parser(settings):
     p = sub.add_parser("down", parents=[common], help="Down/recovery events and captures")
     p.add_argument("--from-date", help="Start of the period. Default: a year before the end.")
     p.add_argument("--to-date", help="End of the period. Default: today.")
-    p.add_argument("--all-time", action="store_true", help="The whole history instead.")
+    p.add_argument("--all-time", action="store_true",
+                   help="Use the whole history instead of a period.")
     p.add_argument("--down-statuses", default=down.DEFAULT_DOWN_STATUSES,
                    help=f"Statuses that count as down, e.g. '5xx' or '4xx,5xx,-404'. "
                         f"Others are ignored. Default: {down.DEFAULT_DOWN_STATUSES!r}")
@@ -83,7 +84,7 @@ def _parser(settings):
     p.add_argument("--csv", metavar="FILE", help="Also save every event as CSV.")
 
     p = sub.add_parser("migration", parents=[common],
-                       help="Check today how URLs that worked before a migration answer")
+                       help="Check how the URLs that worked before a migration answer today")
     p.add_argument("--date", required=True, help="Approximate migration date.")
     p.add_argument("--months-before", type=float, default=migration.DEFAULT_MONTHS_BEFORE,
                    help=f"Collect URLs that worked in this many months before the date. "
@@ -92,7 +93,8 @@ def _parser(settings):
                    help=f"Skip this many days right before the date, since migrations take "
                         f"time. Default: {migration.DEFAULT_MARGIN_DAYS}")
     p.add_argument("--max-urls", type=int, default=migration.DEFAULT_MAX_URLS,
-                   help=f"Most URLs to check live. Default: {migration.DEFAULT_MAX_URLS}")
+                   help=f"Maximum number of URLs to check live. "
+                        f"Default: {migration.DEFAULT_MAX_URLS}")
     p.add_argument("--check-workers", type=int, default=migration.DEFAULT_CHECK_WORKERS,
                    help=f"Parallel live requests. Default: {migration.DEFAULT_CHECK_WORKERS}")
     p.add_argument("--check-delay", type=float, default=migration.DEFAULT_CHECK_DELAY,
@@ -107,7 +109,7 @@ def _parser(settings):
     p.add_argument("--from-date", help="Only versions from this date. Default: all history.")
     p.add_argument("--to-date", help="Only versions up to this date. Default: today.")
     p.add_argument("--max-versions", type=int, default=robots.DEFAULT_MAX_VERSIONS,
-                   help=f"Most recent versions to download. "
+                   help=f"Maximum number of versions to download, the most recent ones. "
                         f"Default: {robots.DEFAULT_MAX_VERSIONS}")
     p.add_argument("--output", default="robots_history.csv", help="CSV, one row per change.")
 
@@ -121,10 +123,10 @@ def _parser(settings):
     p.add_argument("--cache-dir", default=DEFAULTS.cache_dir,
                    help=f"Where downloaded data is kept. Default: {DEFAULTS.cache_dir}")
     p.add_argument("--cache-limit", type=int, default=settings["cache_limit_mb"], metavar="MB",
-                   help=f"Largest size of the cache. Default: {settings['cache_limit_mb']} MB, "
+                   help=f"Maximum size of the cache. Default: {settings['cache_limit_mb']} MB, "
                         f"set in {CONFIG_FILE}")
     p.add_argument("--requests-per-minute", type=int, default=settings["requests_per_minute"],
-                   help=f"Most requests per minute to the Wayback Machine. Default: "
+                   help=f"Maximum requests per minute to the Wayback Machine. Default: "
                         f"{settings['requests_per_minute']}, set in {CONFIG_FILE}")
     p.add_argument("--no-browser", action="store_true", help="Don't open the browser.")
 
