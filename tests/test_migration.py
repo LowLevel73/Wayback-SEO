@@ -91,3 +91,16 @@ def test_redirect_to_a_raw_utf8_location():
     base = f"http://127.0.0.1:{server.server_address[1]}"
     hops, problem = check_url(f"{base}/old", delay=0)
     assert hops == [(f"{base}/old", 301), (f"{base}/città", 200)] and not problem
+
+
+def test_a_robots_txt_that_never_answers_blocks_nothing():
+    import socket
+    from wayback_seo.migration import LiveRobots
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    host = f"127.0.0.1:{sock.getsockname()[1]}"
+    sock.close()  # nothing listens there any more, so the connection is refused
+    robots = LiveRobots(delay=0)
+    assert robots.first_blocked([(f"http://{host}/a", 200)]) == ""
+    assert list(robots.unreadable) == [host]

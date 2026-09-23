@@ -170,6 +170,9 @@ def migration_summary(result):
         lines.append(f"  {len(blocked)} old URLs lead to a URL that robots.txt disallows for "
                      "Googlebot (the old URL or a redirect target), which Google cannot crawl:")
         lines += [f"          e.g. {c.url} (blocked: {c.blocked_url})" for c in blocked[:3]]
+    if result.robots_unknown:
+        lines.append(f"  the robots.txt of {', '.join(result.robots_unknown)} never answered, "
+                     f"so what Google may crawl there is unknown")
     if result.missing:
         lines.append(f"  {_incomplete(result.missing)}: the URL list may be missing some.")
     return "\n".join(lines)

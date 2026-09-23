@@ -61,6 +61,7 @@ class MigrationResult:
     old_urls: int                # URLs that worked in the window
     checks: list = field(default_factory=list)
     missing: list = field(default_factory=list)  # pages that failed to download
+    robots_unknown: list = field(default_factory=list)  # hosts whose robots.txt never answered
 
 
 def _normalize(url):
@@ -108,13 +109,14 @@ def check_url(url, delay=DEFAULT_CHECK_DELAY):
 def _fetch_robots(url, delay):
     """
     (rules, problem): the Googlebot rules of a live robots.txt, treated as Google
-    does. A 4xx or too many redirects allow everything; a 5xx, a 429 or no
-    answer at all disallow everything.
+    does. A 4xx or too many redirects allow everything; a 5xx or a 429 disallow
+    everything. rules is None when the file could not be fetched at all: that
+    says nothing about the site, only that we did not get an answer.
     """
     hops, _, body, problem = http.follow_redirects(url, http.ROBOTS_MAX_HOPS, read_body=True,
                                                    delay=delay)
     if problem and problem not in http.REDIRECT_PROBLEMS:
-        return BLOCK_ALL, f"could not be downloaded ({problem.split(':')[0]})"
+        return None, f"could not be downloaded ({problem.split(':')[0]})"
     status = hops[-1][1] if not problem else 404  # a loop is a 404 for Google
     if 200 <= status < 300:
         return googlebot_rules(parse_groups(body)), ""
@@ -129,18 +131,29 @@ class LiveRobots:
     def __init__(self, delay):
         self.delay = delay
         self.rules = {}
+        self.unreadable = {}     # host -> why its robots.txt could not be fetched
         self.lock = threading.Lock()
 
     def allowed(self, url):
+        """
+        Whether Googlebot may crawl the URL. A host whose robots.txt could not be
+        fetched counts as allowed, because a failure of ours is not a rule of theirs.
+        """
         parts = urlsplit(url)
         origin = f"{parts.scheme}://{parts.netloc.lower()}"
         with self.lock:
             if origin not in self.rules:
                 rules, problem = _fetch_robots(origin + "/robots.txt", self.delay)
-                if problem:
+                if rules is None:
+                    log.warning("%s/robots.txt %s: what Google may crawl on this host is "
+                                "unknown", origin, problem)
+                    self.unreadable[parts.netloc.lower()] = problem
+                elif problem:
                     log.warning("%s/robots.txt %s: Google temporarily stops crawling this host",
                                 origin, problem)
                 self.rules[origin] = rules
+        if self.rules[origin] is None:
+            return True
         path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
         return is_allowed(self.rules[origin], path)
 
@@ -224,4 +237,5 @@ def run_migration(sites, migration_date, months_before=DEFAULT_MONTHS_BEFORE,
     blocked = sum(bool(c.blocked_url) for c in checks)
     if blocked:
         log.info("%d old URLs lead to a URL that robots.txt disallows for Googlebot", blocked)
-    return MigrationResult(sites, migration_date, start, end, len(old), checks, missing)
+    return MigrationResult(sites, migration_date, start, end, len(old), checks, missing,
+                           sorted(robots.unreadable))

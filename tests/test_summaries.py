@@ -40,13 +40,14 @@ def test_migration_summary():
                      [("https://www.x.it/a", 301), ("https://www.y.it/a", 200)],
                      blocked_url="https://www.y.it/a")
     result = MigrationResult(["www.x.it"], date(2025, 12, 10), date(2025, 6, 1),
-                             date(2025, 11, 26), 1, [check])
+                             date(2025, 11, 26), 1, [check], robots_unknown=["www.z.it"])
     text = migration_summary(result)
     assert "1 URLs checked of 1" in text
     assert "100.0%  redirected" in text
     assert "e.g. https://www.x.it/a -> https://www.y.it/a" in text
     assert "1 of the redirects lead to a different host" in text
     assert "robots.txt disallows for Googlebot" in text
+    assert "the robots.txt of www.z.it never answered" in text
 
 
 def test_robots_summary():

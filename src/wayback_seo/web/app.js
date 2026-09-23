@@ -301,6 +301,7 @@ function renderMigration(record) {
   const categories = Object.keys(CATEGORY_MEANING).filter((c) => counts[c]);
   const note = data.old_urls > total ? ` (the first ${total} of ${data.old_urls})` : "";
   const blocked = data.checks.filter((c) => c.blocked_url).length;
+  const unknown = data.robots_unknown || [];  // analyses saved before this existed have none
   const box = (key, tone, label, n, meaning) => `
       <div class="category" data-category="${esc(key)}">
         <span class="badge ${tone}">${esc(label)}</span><br>
@@ -313,6 +314,7 @@ function renderMigration(record) {
       box(c, CATEGORY_TONE[c], c, counts[c], CATEGORY_MEANING[c])).join("")}${blocked ?
       box(ROBOTS_FILTER, "bad", "blocked by robots.txt", blocked,
           "robots.txt blocks the URL or its redirect for Googlebot") : ""}</div>
+    ${unknown.length ? `<p class="hint">The robots.txt of ${esc(unknown.join(", "))} never answered, so what Google may crawl there is unknown.</p>` : ""}
     <div class="table-wrap"><table><thead><tr><th>Old URL</th><th>Result</th><th>Final status</th></tr></thead>
       <tbody id="checks"></tbody></table></div>`;
 
