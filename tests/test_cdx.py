@@ -41,6 +41,11 @@ def test_slow_down_signals():
     assert not _is_slow_down(URLError(TimeoutError()))
 
 
+# Windows returns from a short wait up to about 16 ms early, so every wait in these
+# tests is allowed to come back this much before its deadline.
+EARLY = 0.05
+
+
 def test_pacer_spaces_requests_and_pauses_everyone():
     import time
     from wayback_seo.cdx import Pacer
@@ -48,11 +53,11 @@ def test_pacer_spaces_requests_and_pauses_everyone():
     started = time.monotonic()
     for _ in range(3):
         pacer.wait(requests_per_minute=600)  # 0.1 s apart
-    assert time.monotonic() - started >= 0.19
+    assert time.monotonic() - started >= 0.2 - EARLY
     pacer.pause(0.3)
     started = time.monotonic()
     pacer.wait(requests_per_minute=600)
-    assert time.monotonic() - started >= 0.29
+    assert time.monotonic() - started >= 0.3 - EARLY
 
 
 def test_cache_limit_deletes_least_recently_used(tmp_path):
@@ -122,4 +127,4 @@ def test_the_two_endpoints_are_paced_apart_but_stop_together():
         thread.start()
     for thread in threads:
         thread.join()
-    assert min(waited.values()) >= 0.19
+    assert min(waited.values()) >= 0.2 - EARLY
